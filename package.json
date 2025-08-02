@@ -1,0 +1,30 @@
+{
+  "name": "highest-voice",
+  "version": "1.0.0",
+  "description": "Smart Contract and an UI for Playing the loudest sound without censorship",
+  "main": "index.js",
+  "workspaces": [
+    "ui"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "concurrently --kill-others-on-fail \"npx hardhat node\" \"node scripts/deploy-and-sync.js\" \"npm --prefix ui run dev\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/erfannorozi54/highest-voice.git"
+  },
+  "author": "Erfan.norozi54@gmail.com",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/erfannorozi54/highest-voice/issues"
+  },
+  "homepage": "https://github.com/erfannorozi54/highest-voice#readme",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "concurrently": "^9.2.0",
+    "dotenv": "^17.2.1",
+    "hardhat": "2.26.1",
+    "hardhat-deploy": "^1.0.4"
+  }
+}
