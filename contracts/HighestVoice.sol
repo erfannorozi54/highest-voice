@@ -88,6 +88,11 @@ contract HighestVoice {
         _startNewAuction();
     }
 
+    // =============== VIEW FUNCTIONS ===============
+    function getCountdownEnd() external view returns (uint256) {
+        return auctions[currentAuctionId].revealEnd;
+    }
+
     // =============== AUCTION LOGIC ===============
     function commitBid(bytes32 commitHash) external payable onlyDuringCommit(currentAuctionId) lock {
         Auction storage auction = auctions[currentAuctionId];
@@ -115,15 +120,28 @@ contract HighestVoice {
         commit.voiceCid = voiceCid;
         emit NewReveal(msg.sender, currentAuctionId, bidAmount);
     }
+    /**
+     * @notice Increase collateral and/or update commitment during commit phase.
+     *         Allows a bidder to raise their bid by topping up collateral and updating the commit hash.
+     */
+    function raiseCommit(bytes32 newCommitHash) external payable onlyDuringCommit(currentAuctionId) lock {
+        Auction storage auction = auctions[currentAuctionId];
+        BidCommit storage commit = auction.commits[msg.sender];
+        require(commit.commitHash != bytes32(0), "No commit");
+        require(!commit.revealed, "Already revealed");
+        require(newCommitHash != bytes32(0), "Invalid hash");
+        if (msg.value > 0) {
+            commit.collateral += msg.value;
+        }
+        commit.commitHash = newCommitHash;
+    }
     function settleAuction() external onlyAfterReveal(currentAuctionId) lock {
         Auction storage auction = auctions[currentAuctionId];
         require(!auction.settled, "Already settled");
         uint256 highest = 0;
         uint256 second = 0;
         address winner = address(0);
-        string memory text;
-        string memory imageCid;
-        string memory voiceCid;
+        // removed unused local variables for post data
         // Find highest and second-highest revealed bids
         for (uint256 i = 0; i < auction.bidders.length; i++) {
             address bidder = auction.bidders[i];
@@ -170,7 +188,7 @@ contract HighestVoice {
             }
             emit Refund(bidder, currentAuctionId, refund);
         }
-        emit NewWinner(winner, currentAuctionId, highest, text, imageCid, voiceCid);
+        emit NewWinner(winner, currentAuctionId, highest, winCommit.text, winCommit.imageCid, winCommit.voiceCid);
         _startNewAuction();
     }
     function _startNewAuction() internal {
@@ -188,6 +206,22 @@ contract HighestVoice {
     }
     function getWinnerPost() external view returns (address owner, string memory text, string memory imageCid, string memory voiceCid, uint256 projectedUntil) {
         return (lastWinnerPost.owner, lastWinnerPost.text, lastWinnerPost.imageCid, lastWinnerPost.voiceCid, lastWinnerTime + 24 hours);
+    }
+    function getMyBid(uint256 auctionId)
+        external
+        view
+        returns (
+            bytes32 commitHash,
+            uint256 collateral,
+            bool revealed,
+            uint256 revealedBid,
+            string memory text,
+            string memory imageCid,
+            string memory voiceCid
+        )
+    {
+        BidCommit storage c = auctions[auctionId].commits[msg.sender];
+        return (c.commitHash, c.collateral, c.revealed, c.revealedBid, c.text, c.imageCid, c.voiceCid);
     }
     // =============== UTILITY ===============
     function _wordCount(string memory str) internal pure returns (uint256 count) {

@@ -91,7 +91,7 @@ export default function LivingGallery() {
           initial={{ opacity: 0, y: -50 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8 }}
-          className="p-6 text-center"
+          className="p-6 text-center relative z-20"
         >
           <motion.h1
             animate={{
@@ -110,7 +110,7 @@ export default function LivingGallery() {
         </motion.header>
 
         {/* Main content */}
-        <main className="flex-grow container mx-auto px-4 py-8">
+        <main className="flex-grow container mx-auto px-4 py-8 pb-24">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
             {/* Current projection */}
             <motion.div

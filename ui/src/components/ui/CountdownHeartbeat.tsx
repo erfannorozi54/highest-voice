@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 
-import { useCountdownEnd } from '@/hooks/useHighestVoice';
+import { useAuctionInfo } from '@/hooks/useHighestVoice';
 
 interface CountdownHeartbeatProps {
   onComplete?: () => void;
@@ -15,7 +15,7 @@ export default function CountdownHeartbeat({
   className = '',
 }: CountdownHeartbeatProps) {
   const [now, setNow] = useState(Date.now());
-  const { data: countdownEnd, isLoading } = useCountdownEnd();
+  const { phase: auctionPhase, countdownEnd, isLoading } = useAuctionInfo();
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -36,19 +36,12 @@ export default function CountdownHeartbeat({
       total: Math.floor(difference / 1000),
     };
   }, [now, countdownEnd, onComplete]);
-
-  const totalDuration = useMemo(() => {
-    if (countdownEnd === undefined) return 0;
-    return Math.floor((countdownEnd * 1000 - Date.now()) / 1000) + (timeLeft?.total ?? 0);
-  }, [countdownEnd, timeLeft?.total]);
-
+  
   const phase = useMemo(() => {
-    if (!timeLeft || totalDuration <= 0) return 'settlement';
-    const progress = 1 - (timeLeft.total / totalDuration);
-    if (progress < 1/3) return 'commit';
-    if (progress < 2/3) return 'reveal';
+    if (auctionPhase === 'Commit') return 'commit';
+    if (auctionPhase === 'Reveal') return 'reveal';
     return 'settlement';
-  }, [timeLeft, totalDuration]);
+  }, [auctionPhase]);
 
   const isPulsing = timeLeft?.seconds !== (useMemo(() => timeLeft, [timeLeft])?.seconds);
 
@@ -72,7 +65,8 @@ export default function CountdownHeartbeat({
     );
   }
 
-  const progress = totalDuration > 0 ? (totalDuration - timeLeft.total) / totalDuration : 0;
+  // Visual progress is now tied to the seconds of the current minute for a continuous feel
+  const progress = timeLeft.seconds / 60;
   const circumference = 2 * Math.PI * 90;
   const strokeDashoffset = circumference * (1 - progress);
 

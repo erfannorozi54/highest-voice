@@ -8,7 +8,14 @@
   ],
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "concurrently --kill-others-on-fail \"npx hardhat node\" \"node scripts/deploy-and-sync.js\" \"npm --prefix ui run dev\""
+    "dev": "npm run dev:local",
+    "dev:local": "concurrently --kill-others-on-fail \"npx hardhat node\" \"sleep 5 && NETWORK=local node scripts/deploy-and-sync.js && npm --prefix ui run dev\"",
+    "dev:sepolia": "NETWORK=sepolia node scripts/deploy-and-sync.js && npm --prefix ui run dev",
+    "dev:mainnet": "NETWORK=mainnet node scripts/deploy-and-sync.js && npm --prefix ui run dev",
+    "deploy:local": "NETWORK=local node scripts/deploy-and-sync.js",
+    "deploy:sepolia": "NETWORK=sepolia node scripts/deploy-and-sync.js",
+    "deploy:mainnet": "NETWORK=mainnet node scripts/deploy-and-sync.js",
+    "node:start": "npx hardhat node"
   },
   "repository": {
     "type": "git",
