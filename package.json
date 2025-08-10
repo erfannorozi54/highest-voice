@@ -31,7 +31,15 @@
     "@nomicfoundation/hardhat-toolbox": "^6.1.0",
     "concurrently": "^9.2.0",
     "dotenv": "^17.2.1",
-    "hardhat": "2.26.1",
-    "hardhat-deploy": "^1.0.4"
+    "hardhat": "^2.26.2",
+    "hardhat-deploy": "^0.11.45"
+  },
+  "dependencies": {
+    "elliptic": "^6.6.1",
+    "zksync-ethers": "^6.20.0"
+  },
+  "overrides": {
+    "elliptic": "^6.6.1",
+    "axios": "^1.0.0"
   }
 }
