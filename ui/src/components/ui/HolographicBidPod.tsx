@@ -4,10 +4,12 @@ import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useAuctionInfo, useCommitBid, useRevealBid } from '@/hooks/useHighestVoice';
+import { useAuctionInfo, useCommitBid, useRevealBid, useMyParticipation, useRaiseCommit } from '@/hooks/useHighestVoice';
 import { useUserBids, useCanRaiseBid } from '@/hooks/useUserBids';
 import { keccak256, parseEther, encodePacked, toHex, Hex, formatEther } from 'viem';
 import { toast } from 'react-hot-toast';
+import { saveCommitPreimage } from '@/utils/commitPreimage';
+import { upsertActiveBid } from '@/utils/bidStorage';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { Input } from '@/components/ui/Input';
@@ -20,12 +22,14 @@ interface HolographicBidPodProps {
 
 export default function HolographicBidPod({ className = '' }: HolographicBidPodProps) {
   const { address, isConnected } = useAccount();
-  const { phase } = useAuctionInfo();
+  const { phase, auctionId } = useAuctionInfo();
 
   const { commitBid, isPending: isCommitting } = useCommitBid();
   const { revealBid, isPending: isRevealing } = useRevealBid();
   const { userBids, isLoading: isLoadingBids } = useUserBids();
   const { canRaise, currentAmount } = useCanRaiseBid();
+  const { hasParticipated, collateral, revealed, isLoading: isLoadingParticipation } = useMyParticipation();
+  const { raiseCommit, isConfirming: isRaising } = useRaiseCommit();
 
   // Form state
   const [bidAmount, setBidAmount] = useState('');
@@ -71,7 +75,79 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
       toast.error('Please generate a commitment hash first.');
       return;
     }
-    commitBid(commitHash, bidAmount);
+    if (!auctionId || !address) {
+      toast.error('Auction is not ready.');
+      return;
+    }
+    if (phase.toLowerCase() !== 'commit') {
+      toast.error('Not in commit phase. Please wait for the next commit window.');
+      return;
+    }
+    if (!bidAmount || parseEther(bidAmount) <= 0n) {
+      toast.error('Please enter a positive bid amount.');
+      return;
+    }
+    // Persist preimage for raise and reveal flows
+    try {
+      saveCommitPreimage(address, {
+        auctionId: auctionId.toString(),
+        amount: bidAmount,
+        text,
+        imageCid,
+        voiceCid,
+        salt: salt as Hex,
+        commitHash: commitHash as Hex,
+        updatedAt: Date.now(),
+      });
+      // Also persist an active bid entry for history
+      upsertActiveBid(address, {
+        auctionId: auctionId,
+        amount: parseEther(bidAmount),
+        text,
+        imageCid,
+        voiceCid,
+        timestamp: BigInt(Math.floor(Date.now() / 1000)),
+        isRevealed: false,
+        isWinner: false,
+        commitHash: commitHash as string,
+      });
+    } catch (e) {
+      console.warn('Failed to save commit preimage', e);
+    }
+    // If user already has a commit, automatically treat this as a raise
+    if (hasParticipated && !revealed) {
+      const newAmountWei = parseEther(bidAmount);
+      if (newAmountWei <= collateral) {
+        toast.error(`New bid must be higher than your current collateral of ${formatEther(collateral)} ETH`);
+        return;
+      }
+      const delta = newAmountWei - collateral;
+      try {
+        raiseCommit(commitHash as Hex, delta);
+      } catch (err) {
+        console.error('raiseCommit failed', err);
+        const msg = (err as any)?.message || '';
+        if (msg.toLowerCase().includes('circuit breaker')) {
+          toast.error('MetaMask circuit breaker is open. Switch networks or wait ~30s, then try again.');
+        } else {
+          toast.error('Failed to raise bid');
+        }
+      }
+      return;
+    }
+
+    // Otherwise, submit initial commit
+    try {
+      commitBid(commitHash as Hex, bidAmount);
+    } catch (err) {
+      console.error('commitBid failed', err);
+      const msg = (err as any)?.message || '';
+      if (msg.toLowerCase().includes('circuit breaker')) {
+        toast.error('MetaMask circuit breaker is open. Switch networks or wait ~30s, then try again.');
+      } else {
+        toast.error('Failed to commit bid');
+      }
+    }
   };
 
   const handleReveal = () => {
@@ -146,10 +222,10 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
               </TabsList>
 
               <TabsContent value="commit" className="space-y-4">
-                {userBids.activeBids.length > 0 && !userBids.activeBids[0].isRevealed && (
+                {hasParticipated && !revealed && (
                   <div className="p-3 bg-yellow-500/20 border border-yellow-500/30 rounded-lg">
                     <p className="text-sm text-yellow-300">
-                      You have an active bid of {formatEther(userBids.activeBids[0].amount)} ETH
+                      {isLoadingParticipation ? 'Loading your on-chain collateral...' : `You have an active bid of ${formatEther(collateral)} ETH`}
                     </p>
                     {canRaise && (
                       <p className="text-xs text-yellow-400 mt-1">
@@ -219,10 +295,12 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
                 {commitHash && (
                   <Button
                     onClick={handleCommit}
-                    disabled={isCommitting}
+                    disabled={isCommitting || isRaising}
                     className="w-full bg-gradient-to-r from-cyan-600 to-green-600 hover:from-cyan-700 hover:to-green-700"
                   >
-                    {isCommitting ? 'Committing...' : 'Commit Bid'}
+                    {isCommitting || isRaising
+                      ? (hasParticipated && !revealed ? 'Raising...' : 'Committing...')
+                      : (hasParticipated && !revealed ? 'Raise Bid' : 'Commit Bid')}
                   </Button>
                 )}
               </TabsContent>

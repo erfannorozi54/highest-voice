@@ -207,6 +207,10 @@ contract HighestVoice {
     function getWinnerPost() external view returns (address owner, string memory text, string memory imageCid, string memory voiceCid, uint256 projectedUntil) {
         return (lastWinnerPost.owner, lastWinnerPost.text, lastWinnerPost.imageCid, lastWinnerPost.voiceCid, lastWinnerTime + 24 hours);
     }
+    function getAuctionResult(uint256 auctionId) external view returns (bool settled, address winner, uint256 winningBid, uint256 secondBid) {
+        Auction storage a = auctions[auctionId];
+        return (a.settled, a.winner, a.winningBid, a.secondBid);
+    }
     function getMyBid(uint256 auctionId)
         external
         view

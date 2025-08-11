@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { formatEther } from 'viem';
+import { formatEther, parseEther, keccak256, encodePacked, toHex } from 'viem';
 import { useUserBids, useCanRaiseBid } from '@/hooks/useUserBids';
-import { useCommitBid, useRevealBid } from '@/hooks/useHighestVoice';
+import { useRevealBid, useRaiseCommit, useAuctionInfo, useMyParticipation } from '@/hooks/useHighestVoice';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -14,6 +14,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'react-hot-toast';
+import { getCommitPreimage, saveCommitPreimage } from '@/utils/commitPreimage';
+import { upsertActiveBid } from '@/utils/bidStorage';
 
 interface UserBidManagerProps {
   className?: string;
@@ -23,8 +25,10 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
   const { address, isConnected } = useAccount();
   const { userBids, isLoading, refetchAll } = useUserBids();
   const { canRaise, currentAmount, commitHash: currentCommitHash } = useCanRaiseBid();
-  const { commitBid, isPending: isCommitting } = useCommitBid();
   const { revealBid, isPending: isRevealing } = useRevealBid();
+  const { raiseCommit, isConfirming: isRaising } = useRaiseCommit();
+  const { auctionId } = useAuctionInfo();
+  const { hasParticipated, collateral, isLoading: isLoadingParticipation } = useMyParticipation();
 
   const [raiseAmount, setRaiseAmount] = useState('');
   const [showRaiseModal, setShowRaiseModal] = useState(false);
@@ -34,22 +38,61 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
     if (!raiseAmount || !currentCommitHash) return;
 
     try {
-      const newAmount = parseFloat(raiseAmount);
-      const currentEth = parseFloat(formatEther(currentAmount));
-      
-      if (newAmount <= currentEth) {
+      if (!address || !auctionId) {
+        toast.error('Auction or wallet not ready');
+        return;
+      }
+
+      const newAmountWei = parseEther(raiseAmount);
+      const currentWei = currentAmount;
+      if (newAmountWei <= currentWei) {
         toast.error('New bid must be higher than current bid');
         return;
       }
 
-      // Generate new commitment
-      const salt = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
-        .map(b => b.toString(16).padStart(2, '0')).join('');
-      
-      const newCommitHash = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)))
-        .map(b => b.toString(16).padStart(2, '0')).join('')}` as `0x${string}`;
+      // Load existing preimage to preserve content and re-commit with new amount
+      const preimage = getCommitPreimage(address, auctionId);
+      if (!preimage) {
+        toast.error('Missing preimage for your commit. Please open Commit tab and regenerate your commit with content.');
+        return;
+      }
 
-      await commitBid(newCommitHash, raiseAmount);
+      const newSalt = toHex(crypto.getRandomValues(new Uint8Array(32)));
+      const newCommitHash = keccak256(
+        encodePacked(
+          ['uint256', 'string', 'string', 'string', 'bytes32'],
+          [newAmountWei, preimage.text, preimage.imageCid, preimage.voiceCid, newSalt]
+        )
+      ) as `0x${string}`;
+
+      const delta = newAmountWei - currentWei;
+      // Send only the additional collateral
+      await raiseCommit(newCommitHash, delta);
+
+      // Persist updated preimage
+      saveCommitPreimage(address, {
+        auctionId: auctionId.toString(),
+        amount: raiseAmount,
+        text: preimage.text,
+        imageCid: preimage.imageCid,
+        voiceCid: preimage.voiceCid,
+        salt: newSalt,
+        commitHash: newCommitHash,
+        updatedAt: Date.now(),
+      });
+      // Update active bid snapshot for immediate UI
+      upsertActiveBid(address, {
+        auctionId,
+        amount: newAmountWei,
+        text: preimage.text,
+        imageCid: preimage.imageCid,
+        voiceCid: preimage.voiceCid,
+        timestamp: BigInt(Math.floor(Date.now() / 1000)),
+        isRevealed: false,
+        isWinner: false,
+        commitHash: newCommitHash,
+      });
+
       toast.success('Bid raised successfully!');
       setShowRaiseModal(false);
       setRaiseAmount('');
@@ -92,6 +135,29 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
               </span>
             )}
           </CardTitle>
+          {/* Participation summary */}
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Participating:</span>
+              {isLoadingParticipation ? (
+                <span className="h-4 w-16 bg-muted/30 rounded animate-pulse" />
+              ) : (
+                <span className={`px-2 py-0.5 rounded-full border text-xs ${hasParticipated ? 'bg-green-500/20 text-green-400 border-green-500/40' : 'bg-gray-500/10 text-gray-300 border-gray-500/30'}`}>
+                  {hasParticipated ? 'Yes' : 'No'}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Collateral:</span>
+              {isLoadingParticipation ? (
+                <span className="h-4 w-24 bg-muted/30 rounded animate-pulse" />
+              ) : hasParticipated ? (
+                <span className="font-medium">{formatEther(collateral)} ETH</span>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="active" className="w-full">
@@ -144,9 +210,9 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
                         <Button
                           size="sm"
                           onClick={() => setShowRaiseModal(true)}
-                          disabled={isCommitting}
+                          disabled={isRaising}
                         >
-                          Raise Bid
+                          {isRaising ? 'Processing...' : 'Raise Bid'}
                         </Button>
                       )}
                       {!bid.isRevealed && (
@@ -289,10 +355,10 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
                 <div className="flex gap-2">
                   <Button
                     onClick={handleRaiseBid}
-                    disabled={isCommitting || !raiseAmount}
+                    disabled={isRaising || !raiseAmount}
                     className="flex-1"
                   >
-                    {isCommitting ? 'Processing...' : 'Raise Bid'}
+                    {isRaising ? 'Processing...' : 'Raise Bid'}
                   </Button>
                   <Button
                     variant="outline"

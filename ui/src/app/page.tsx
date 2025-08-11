@@ -8,6 +8,7 @@ import TemporalRibbon from '@/components/ui/TemporalRibbon';
 import HolographicBidPod from '@/components/ui/HolographicBidPod';
 import CountdownHeartbeat from '@/components/ui/CountdownHeartbeat';
 import AudioReactivePlayer from '@/components/ui/AudioReactivePlayer';
+import UserBidManager from '@/components/ui/UserBidManager';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 
 interface Winner {
@@ -206,6 +207,15 @@ export default function LivingGallery() {
                 transition={{ duration: 0.8, delay: 0.6 }}
               >
                 <HolographicBidPod />
+              </motion.div>
+
+              {/* User bid manager - displays tabs for active, previous, and revealed bids */}
+              <motion.div
+                initial={{ opacity: 0, x: 50 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.8, delay: 0.8 }}
+              >
+                <UserBidManager />
               </motion.div>
             </div>
           </div>

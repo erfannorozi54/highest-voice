@@ -7,7 +7,7 @@ const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT as Addre
 
 // --- Primary Hook for Auction State ---
 export function useAuctionInfo() {
-  const { data: block } = useBlock({ query: { refetchInterval: 1000 } });
+  const { data: block } = useBlock({ query: { refetchInterval: 5000 } });
 
   const { data: auctionId } = useReadContract({
     address: CONTRACT_ADDRESS,
@@ -155,4 +155,56 @@ export function useWinners() {
 export function useIsConnected() {
   const { isConnected } = useAccount();
   return isConnected;
+}
+ 
+ export function useMyParticipation() {
+   const { address } = useAccount();
+ 
+   const { data: auctionId } = useReadContract({
+     address: CONTRACT_ADDRESS,
+     abi: HIGHEST_VOICE_ABI,
+     functionName: 'currentAuctionId',
+     query: { enabled: !!CONTRACT_ADDRESS },
+   });
+ 
+   const { data: myBid, isLoading } = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: HIGHEST_VOICE_ABI,
+    functionName: 'getMyBid',
+    account: address as Address,
+    args: auctionId !== undefined && address ? [auctionId] : undefined,
+    query: { enabled: !!CONTRACT_ADDRESS && auctionId !== undefined && !!address, refetchInterval: 30000 },
+  });
+ 
+   let hasParticipated = false;
+   let collateral: bigint = 0n;
+   let commitHash: `0x${string}` | undefined = undefined;
+   let revealed = false;
+ 
+   if (myBid) {
+     const [commit, col, rev] = myBid as unknown as [`0x${string}`, bigint, boolean];
+     hasParticipated = commit !== '0x0000000000000000000000000000000000000000000000000000000000000000';
+     collateral = col;
+     commitHash = commit;
+     revealed = rev;
+   }
+ 
+   return { auctionId, hasParticipated, collateral, commitHash, revealed, isLoading };
+ }
+
+export function useRaiseCommit() {
+  const { writeContract, data: hash, ...rest } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
+
+  const raiseCommit = (newCommitHash: `0x${string}`, valueWei: bigint) => {
+    writeContract({
+      address: CONTRACT_ADDRESS,
+      abi: HIGHEST_VOICE_ABI,
+      functionName: 'raiseCommit',
+      args: [newCommitHash],
+      value: valueWei,
+    });
+  };
+
+  return { raiseCommit, hash, isConfirming, isConfirmed, ...rest };
 }

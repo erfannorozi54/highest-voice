@@ -208,25 +208,46 @@ export const HIGHEST_VOICE_ABI = [
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "newCommitHash",
-        "type": "bytes32"
-      }
-    ],
-    "name": "raiseCommit",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
-  },
-  {
     "inputs": [],
     "name": "currentAuctionId",
     "outputs": [
       {
         "internalType": "uint256",
         "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "auctionId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getAuctionResult",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "settled",
+        "type": "bool"
+      },
+      {
+        "internalType": "address",
+        "name": "winner",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "winningBid",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "secondBid",
         "type": "uint256"
       }
     ],
@@ -263,6 +284,19 @@ export const HIGHEST_VOICE_ABI = [
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "getCountdownEnd",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -272,25 +306,40 @@ export const HIGHEST_VOICE_ABI = [
     ],
     "name": "getMyBid",
     "outputs": [
-      { "internalType": "bytes32", "name": "commitHash", "type": "bytes32" },
-      { "internalType": "uint256", "name": "collateral", "type": "uint256" },
-      { "internalType": "bool",    "name": "revealed",   "type": "bool" },
-      { "internalType": "uint256", "name": "revealedBid", "type": "uint256" },
-      { "internalType": "string",  "name": "text",       "type": "string" },
-      { "internalType": "string",  "name": "imageCid",   "type": "string" },
-      { "internalType": "string",  "name": "voiceCid",   "type": "string" }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getCountdownEnd",
-    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "commitHash",
+        "type": "bytes32"
+      },
       {
         "internalType": "uint256",
-        "name": "",
+        "name": "collateral",
         "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "revealed",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint256",
+        "name": "revealedBid",
+        "type": "uint256"
+      },
+      {
+        "internalType": "string",
+        "name": "text",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "imageCid",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "voiceCid",
+        "type": "string"
       }
     ],
     "stateMutability": "view",
@@ -368,6 +417,19 @@ export const HIGHEST_VOICE_ABI = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "newCommitHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "raiseCommit",
+    "outputs": [],
+    "stateMutability": "payable",
     "type": "function"
   },
   {
