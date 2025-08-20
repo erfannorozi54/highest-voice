@@ -10,6 +10,7 @@ import { keccak256, parseEther, encodePacked, toHex, Hex, formatEther } from 'vi
 import { toast } from 'react-hot-toast';
 import { getCommitPreimage, saveCommitPreimage } from '@/utils/commitPreimage';
 import { upsertActiveBid } from '@/utils/bidStorage';
+import ConfirmationModal from '@/components/ConfirmationModal';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { Input } from '@/components/ui/Input';
@@ -42,6 +43,12 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
   const [commitHash, setCommitHash] = useState<Hex | ''>('');
   const [isBidInfoHidden, setIsBidInfoHidden] = useState(false);
   const [hasConfirmedSave, setHasConfirmedSave] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmModalData, setConfirmModalData] = useState<{
+    remainingAmount: number;
+    bidAmount: string;
+    collateralAmount: string;
+  } | null>(null);
 
   const [pulseColor, setPulseColor] = useState('#00ffff');
 
@@ -121,19 +128,26 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
     const collateralAmountNum = parseFloat(collateralAmount);
     const remainingToPayAtReveal = Math.max(0, bidAmountNum - collateralAmountNum);
 
-    // Prompt user to confirm remaining amount
-    const confirmMessage = `Remaining to pay at reveal ${remainingToPayAtReveal.toFixed(6)} ETH\n\nPlease confirm this amount and ensure you have sufficient funds for the reveal phase.`;
+    // Show confirmation modal instead of browser confirm
+    setConfirmModalData({
+      remainingAmount: remainingToPayAtReveal,
+      bidAmount,
+      collateralAmount,
+    });
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmCommit = () => {
+    if (!confirmModalData || !address || !auctionId) return;
     
-    if (!confirm(confirmMessage)) {
-      return;
-    }
+    const { remainingAmount, bidAmount: modalBidAmount, collateralAmount: modalCollateralAmount } = confirmModalData;
     // Persist preimage for raise and reveal flows
     try {
       saveCommitPreimage(address, {
         auctionId: auctionId.toString(),
-        amount: bidAmount,
-        collateralAmount,
-        remainingToPayAtReveal: remainingToPayAtReveal.toString(),
+        amount: modalBidAmount,
+        collateralAmount: modalCollateralAmount,
+        remainingToPayAtReveal: remainingAmount.toString(),
         text,
         imageCid,
         voiceCid,
@@ -145,7 +159,7 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
       // Also persist an active bid entry for history
       upsertActiveBid(address, {
         auctionId: auctionId,
-        amount: parseEther(bidAmount),
+        amount: parseEther(modalBidAmount),
         text,
         imageCid,
         voiceCid,
@@ -159,9 +173,11 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
     }
     // If user already has a commit, automatically treat this as a raise
     if (hasParticipated && !revealed) {
-      const newAmountWei = parseEther(bidAmount);
+      const newAmountWei = parseEther(modalBidAmount);
       if (newAmountWei <= collateral) {
         toast.error(`New bid must be higher than your current collateral of ${formatEther(collateral)} ETH`);
+        setShowConfirmModal(false);
+        setConfirmModalData(null);
         return;
       }
       const delta = newAmountWei - collateral;
@@ -176,13 +192,15 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
           toast.error('Failed to raise bid');
         }
       }
+      setShowConfirmModal(false);
+      setConfirmModalData(null);
       return;
     }
 
     // Otherwise, submit initial commit
     try {
       commitBid(commitHash as Hex, {
-        value: parseEther(collateralAmount),
+        value: parseEther(modalCollateralAmount),
       });
     } catch (err) {
       console.error('commitBid failed', err);
@@ -193,6 +211,9 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
         toast.error('Failed to commit bid');
       }
     }
+    
+    setShowConfirmModal(false);
+    setConfirmModalData(null);
   };
 
   const handleReveal = () => {
@@ -395,6 +416,21 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
         </Card>
       </div>
       <style jsx>{` @keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } `}</style>
+      
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showConfirmModal}
+        onClose={() => {
+          setShowConfirmModal(false);
+          setConfirmModalData(null);
+        }}
+        onConfirm={handleConfirmCommit}
+        title="Confirm Bid Commitment"
+        message={confirmModalData ? `Remaining to pay at reveal (bid - collateral): ${confirmModalData.remainingAmount.toFixed(6)} ETH\n\nPlease confirm this amount and ensure you have sufficient funds for the reveal phase.` : ''}
+        confirmText="Commit Bid"
+        cancelText="Cancel"
+        isLoading={isCommitting || isRaising}
+      />
     </motion.div>
   );
 }
