@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { formatEther, parseEther, keccak256, encodePacked, toHex } from 'viem';
 import { useUserBids, useCanRaiseBid } from '@/hooks/useUserBids';
-import { useRevealBid, useRaiseCommit, useAuctionInfo, useMyParticipation } from '@/hooks/useHighestVoice';
+import { useRevealBid, useRaiseCommit, useAuctionInfo, useMyParticipation, useCancelBid } from '@/hooks/useHighestVoice';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -27,11 +27,13 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
   const { canRaise, currentAmount, commitHash: currentCommitHash } = useCanRaiseBid();
   const { revealBid, isPending: isRevealing } = useRevealBid();
   const { raiseCommit, isConfirming: isRaising } = useRaiseCommit();
+  const { cancelBid, isPending: isCancelling } = useCancelBid();
   const { auctionId } = useAuctionInfo();
   const { hasParticipated, collateral, isLoading: isLoadingParticipation } = useMyParticipation();
 
   const [raiseAmount, setRaiseAmount] = useState('');
   const [showRaiseModal, setShowRaiseModal] = useState(false);
+  const [showRevealModal, setShowRevealModal] = useState(false);
   const [selectedBid, setSelectedBid] = useState<any>(null);
 
   const handleRaiseBid = async () => {
@@ -103,6 +105,46 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
     }
   };
 
+  const handleReveal = async () => {
+    if (!selectedBid || !address || !auctionId) {
+      toast.error('No bid selected or wallet/auction not ready.');
+      return;
+    }
+
+    const preimage = getCommitPreimage(address, auctionId);
+    if (!preimage) {
+      toast.error('Could not find reveal data. Please try revealing from the main bid pod.');
+      return;
+    }
+
+    const { amount, text, imageCid, voiceCid, salt } = preimage;
+    const bidAmountWei = parseEther(amount);
+    
+    const valueToSend = bidAmountWei > collateral ? bidAmountWei - collateral : 0n;
+
+    try {
+      await revealBid(amount, text, imageCid, voiceCid, salt, valueToSend);
+      toast.success('Bid revealed successfully!');
+      setShowRevealModal(false);
+      setSelectedBid(null);
+      refetchAll();
+    } catch (error) {
+      console.error('Error revealing bid:', error);
+      toast.error('Failed to reveal bid.');
+    }
+  };
+
+  const handleCancelBid = async () => {
+    try {
+      await cancelBid();
+      toast.success('Bid cancelled successfully!');
+      refetchAll();
+    } catch (error) {
+      console.error('Error cancelling bid:', error);
+      toast.error('Failed to cancel bid');
+    }
+  };
+
   const formatTimestamp = (timestamp: bigint) => {
     return new Date(Number(timestamp) * 1000).toLocaleString();
   };
@@ -135,6 +177,73 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
               </span>
             )}
           </CardTitle>
+          {/* Your Committed Bid Section */}
+          {hasParticipated && !isLoadingParticipation && (
+            <div className="mt-4 p-4 border border-cyan-500/30 rounded-lg bg-cyan-500/10">
+              <div className="flex justify-between items-center mb-3">
+                <h4 className="font-semibold text-cyan-300">Your Committed Bid</h4>
+                <Button 
+                  size="sm" 
+                  variant="ghost" 
+                  onClick={() => {
+                    if (address && auctionId !== undefined) {
+                      const preimage = getCommitPreimage(address, auctionId);
+                      if (preimage) {
+                        const isCurrentlyHidden = preimage.isHidden || false;
+                        saveCommitPreimage(address, { ...preimage, isHidden: !isCurrentlyHidden });
+                        // Force re-render by updating state
+                        refetchAll();
+                      }
+                    }
+                  }}
+                  className="text-cyan-400 hover:text-cyan-300"
+                >
+                  {(() => {
+                    if (address && auctionId !== undefined) {
+                      const preimage = getCommitPreimage(address, auctionId);
+                      return preimage?.isHidden ? 'Show' : 'Hide';
+                    }
+                    return 'Hide';
+                  })()}
+                </Button>
+              </div>
+              {(() => {
+                if (address && auctionId !== undefined) {
+                  const preimage = getCommitPreimage(address, auctionId);
+                  const isHidden = preimage?.isHidden || false;
+                  
+                  if (!isHidden && preimage) {
+                    return (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-sm text-cyan-400/70 mb-1">Bid Amount</p>
+                            <p className="font-mono text-lg text-cyan-300">{preimage.amount} ETH</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-cyan-400/70 mb-1">Collateral Paid</p>
+                            <p className="font-mono text-lg text-cyan-300">{preimage.collateralAmount || formatEther(collateral)} ETH</p>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-sm text-cyan-400/70 mb-1">Remaining to Pay at Reveal</p>
+                          <p className="font-mono text-xl text-yellow-300 font-bold">
+                            {preimage.remainingToPayAtReveal ? `${preimage.remainingToPayAtReveal} ETH` : 
+                             `${Math.max(0, parseFloat(preimage.amount) - parseFloat(formatEther(collateral))).toFixed(6)} ETH`}
+                          </p>
+                        </div>
+                        <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-md">
+                          <p className="text-yellow-300 text-sm font-semibold">💡 Keep the remaining reveal amount—you'll need it to finalize the bid.</p>
+                        </div>
+                      </div>
+                    );
+                  }
+                }
+                return null;
+              })()}
+            </div>
+          )}
+          
           {/* Participation summary */}
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
             <div className="flex items-center gap-2">
@@ -221,10 +330,20 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
                           variant="outline"
                           onClick={() => {
                             setSelectedBid(bid);
-                            // Handle reveal flow
+                            setShowRevealModal(true);
                           }}
                         >
                           Reveal
+                        </Button>
+                      )}
+                      {!bid.isRevealed && (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={handleCancelBid}
+                          disabled={isCancelling}
+                        >
+                          {isCancelling ? 'Cancelling...' : 'Cancel Bid'}
                         </Button>
                       )}
                     </div>
@@ -363,6 +482,53 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
                   <Button
                     variant="outline"
                     onClick={() => setShowRaiseModal(false)}
+                    className="flex-1"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Reveal Bid Modal */}
+      <AnimatePresence>
+        {showRevealModal && selectedBid && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            onClick={() => setShowRevealModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-background border rounded-lg p-6 max-w-md w-full mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-semibold mb-4">Reveal Your Bid</h3>
+              <div className="space-y-4">
+                <p>You are about to reveal your bid for Auction #{selectedBid.auctionId.toString()}.</p>
+                <div className="p-3 bg-muted/50 rounded-lg space-y-2">
+                  <div><span className="font-medium">Amount:</span> {formatEther(selectedBid.amount)} ETH</div>
+                  {selectedBid.text && <div><span className="font-medium">Text:</span> {selectedBid.text}</div>}
+                </div>
+                <p className="text-sm text-muted-foreground">This action is irreversible. Your bid details will become public.</p>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={handleReveal}
+                    disabled={isRevealing}
+                    className="flex-1"
+                  >
+                    {isRevealing ? 'Revealing...' : 'Confirm Reveal'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowRevealModal(false)}
                     className="flex-1"
                   >
                     Cancel

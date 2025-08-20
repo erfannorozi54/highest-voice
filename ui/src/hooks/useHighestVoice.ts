@@ -66,13 +66,13 @@ export function useCommitBid() {
   const { writeContract, data: hash, ...rest } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
 
-  const commitBid = (commitHash: `0x${string}`, collateral: string) => {
+  const commitBid = (commitHash: `0x${string}`, options: { value: bigint }) => {
     writeContract({
       address: CONTRACT_ADDRESS,
       abi: HIGHEST_VOICE_ABI,
       functionName: 'commitBid',
       args: [commitHash],
-      value: parseEther(collateral),
+      value: options.value,
     });
   };
 
@@ -83,16 +83,28 @@ export function useRevealBid() {
   const { writeContract, data: hash, ...rest } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
 
-  const revealBid = (bidAmount: string, text: string, imageCid: string, voiceCid: string, salt: `0x${string}`) => {
+  const revealBid = (bidAmount: string, text: string, imageCid: string, voiceCid: string, salt: `0x${string}`, value: bigint) => {
     writeContract({
       address: CONTRACT_ADDRESS,
       abi: HIGHEST_VOICE_ABI,
       functionName: 'revealBid',
       args: [parseEther(bidAmount), text, imageCid, voiceCid, salt],
+      value: value,
     });
   };
 
   return { revealBid, hash, isConfirming, isConfirmed, ...rest };
+}
+
+export function useMinimumCollateral() {
+  const { data: minimumCollateral, isLoading } = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: HIGHEST_VOICE_ABI,
+    functionName: 'minimumCollateral',
+    query: { enabled: !!CONTRACT_ADDRESS, refetchInterval: 60000 }, // Refetch every minute
+  });
+
+  return { minimumCollateral, isLoading };
 }
 
 export function useSettleAuction() {
@@ -191,6 +203,27 @@ export function useIsConnected() {
  
    return { auctionId, hasParticipated, collateral, commitHash, revealed, isLoading };
  }
+
+export function useCancelBid() {
+  const { writeContractAsync, isPending, isSuccess, isError, error } = useWriteContract();
+
+  const cancelBid = async () => {
+    try {
+      const tx = await writeContractAsync({
+        address: CONTRACT_ADDRESS,
+        abi: HIGHEST_VOICE_ABI,
+        functionName: 'cancelBid',
+        args: [],
+      });
+      return tx;
+    } catch (err) {
+      console.error('Error cancelling bid:', err);
+      throw err;
+    }
+  };
+
+  return { cancelBid, isPending, isSuccess, isError, error };
+}
 
 export function useRaiseCommit() {
   const { writeContract, data: hash, ...rest } = useWriteContract();

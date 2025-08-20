@@ -53,7 +53,7 @@ export function useUserBids() {
   const [startTime, commitEnd, revealEnd] = auctionTimes || [0n, 0n, 0n];
   const now = BigInt(Math.floor(Date.now() / 1000));
 
-  const [isLoading, setIsLoading] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   // Fetch user's bid for current auction
   const { data: currentUserBid, refetch: refetchCurrentUserBid } = useReadContract({
@@ -64,7 +64,7 @@ export function useUserBids() {
     args: currentAuctionId !== undefined && address ? [currentAuctionId] : undefined,
     query: { 
       enabled: !!CONTRACT_ADDRESS && !!address && currentAuctionId !== undefined, 
-      refetchInterval: 30000 // Refetch every 30 seconds
+      refetchInterval: 60000, // Refetch every 60 seconds
     },
   });
 
@@ -74,7 +74,6 @@ export function useUserBids() {
       return;
     }
 
-    setIsLoading(true);
     try {
       // Move any stale active bids (from past auctions) into previous when auction id advances
       if (currentAuctionId !== undefined) {
@@ -129,7 +128,9 @@ export function useUserBids() {
       console.error('Error loading user bids:', error);
       setUserBids({ activeBids: [], previousBids: [], revealedBids: [] });
     } finally {
-      setIsLoading(false);
+      if (isInitialLoading) {
+        setIsInitialLoading(false);
+      }
     }
   }, [address, isConnected, currentUserBid, currentAuctionId, now, revealEnd]);
 
@@ -291,7 +292,7 @@ export function useUserBids() {
 
   return {
     userBids,
-    isLoading,
+    isLoading: isInitialLoading,
     refetchAll,
     hasActiveBid: userBids.activeBids.length > 0,
     canRaiseBid: userBids.activeBids.length > 0 && userBids.activeBids[0].isRevealed === false,

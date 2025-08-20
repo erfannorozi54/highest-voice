@@ -18,6 +18,31 @@ export const HIGHEST_VOICE_ABI = [
         "internalType": "uint256",
         "name": "auctionId",
         "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "BidCancelled",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "bidder",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "auctionId",
+        "type": "uint256"
       }
     ],
     "name": "NewCommit",
@@ -144,6 +169,19 @@ export const HIGHEST_VOICE_ABI = [
   },
   {
     "inputs": [],
+    "name": "INITIAL_MINIMUM_COLLATERAL",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "REVEAL_DURATION",
     "outputs": [
       {
@@ -192,6 +230,13 @@ export const HIGHEST_VOICE_ABI = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "cancelBid",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -420,6 +465,19 @@ export const HIGHEST_VOICE_ABI = [
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "minimumCollateral",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "bytes32",
@@ -462,7 +520,7 @@ export const HIGHEST_VOICE_ABI = [
     ],
     "name": "revealBid",
     "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "payable",
     "type": "function"
   },
   {

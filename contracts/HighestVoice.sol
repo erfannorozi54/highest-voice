@@ -13,6 +13,7 @@ contract HighestVoice {
     event NewReveal(address indexed bidder, uint256 auctionId, uint256 bid);
     event NewWinner(address indexed winner, uint256 auctionId, uint256 amount, string text, string imageCid, string voiceCid);
     event Refund(address indexed bidder, uint256 auctionId, uint256 amount);
+    event BidCancelled(address indexed bidder, uint256 auctionId, uint256 amount);
 
     // =============== STRUCTS ===============
     struct Post {
@@ -50,9 +51,11 @@ contract HighestVoice {
     uint256 public constant IMAGE_CID_LIMIT = 500 * 1024; // bytes
     uint256 public constant VOICE_CID_LIMIT = 1024 * 1024; // bytes
     uint256 public constant VOICE_SECONDS_LIMIT = 60; // metadata only
+    uint256 public constant INITIAL_MINIMUM_COLLATERAL = 0.01 ether;
 
     // =============== STATE ===============
     uint256 public currentAuctionId;
+    uint256 public minimumCollateral;
     mapping(uint256 => Auction) private auctions;
     Post public lastWinnerPost;
     uint256 public lastWinnerTime;
@@ -85,6 +88,7 @@ contract HighestVoice {
 
     // =============== CONSTRUCTOR ===============
     constructor() {
+        minimumCollateral = INITIAL_MINIMUM_COLLATERAL;
         _startNewAuction();
     }
 
@@ -97,28 +101,39 @@ contract HighestVoice {
     function commitBid(bytes32 commitHash) external payable onlyDuringCommit(currentAuctionId) lock {
         Auction storage auction = auctions[currentAuctionId];
         require(auction.commits[msg.sender].commitHash == bytes32(0), "Already committed");
-        require(msg.value > 0, "Collateral required");
+        require(msg.value >= minimumCollateral, "Insufficient collateral");
         auction.bidders.push(msg.sender);
         auction.commits[msg.sender] = BidCommit({commitHash: commitHash, collateral: msg.value, revealed: false, revealedBid: 0, text: "", imageCid: "", voiceCid: ""});
         emit NewCommit(msg.sender, currentAuctionId);
     }
-    function revealBid(uint256 bidAmount, string calldata text, string calldata imageCid, string calldata voiceCid, bytes32 salt) external onlyDuringReveal(currentAuctionId) lock {
+    function revealBid(uint256 bidAmount, string calldata text, string calldata imageCid, string calldata voiceCid, bytes32 salt) external payable onlyDuringReveal(currentAuctionId) lock {
         Auction storage auction = auctions[currentAuctionId];
         BidCommit storage commit = auction.commits[msg.sender];
         require(commit.commitHash != bytes32(0), "No commit");
         require(!commit.revealed, "Already revealed");
         require(commit.commitHash == keccak256(abi.encodePacked(bidAmount, text, imageCid, voiceCid, salt)), "Invalid reveal");
-        require(bidAmount <= commit.collateral, "Insufficient collateral");
         require(_wordCount(text) <= WORD_LIMIT, "Text too long");
         require(bytes(imageCid).length <= IMAGE_CID_LIMIT, "Image CID too large");
         require(bytes(voiceCid).length <= VOICE_CID_LIMIT, "Voice CID too large");
-        // Voice duration check is off-chain, enforced by front-end/metadata
+
+        uint256 totalProvided = commit.collateral + msg.value;
+        require(totalProvided >= bidAmount, "Insufficient funds to cover bid");
+
         commit.revealed = true;
         commit.revealedBid = bidAmount;
         commit.text = text;
         commit.imageCid = imageCid;
         commit.voiceCid = voiceCid;
+
+        uint256 refundAmount = totalProvided - bidAmount;
+        commit.collateral = bidAmount; // Update collateral to the actual bid amount for settlement
+
         emit NewReveal(msg.sender, currentAuctionId, bidAmount);
+
+        if (refundAmount > 0) {
+            (bool sent, ) = msg.sender.call{value: refundAmount}("");
+            require(sent, "Immediate refund failed");
+        }
     }
     /**
      * @notice Increase collateral and/or update commitment during commit phase.
@@ -134,6 +149,29 @@ contract HighestVoice {
             commit.collateral += msg.value;
         }
         commit.commitHash = newCommitHash;
+    }
+
+    /**
+     * @notice Cancel a bid during the commit phase and get a full refund.
+     */
+    function cancelBid() external onlyDuringCommit(currentAuctionId) lock {
+        Auction storage auction = auctions[currentAuctionId];
+        BidCommit storage commit = auction.commits[msg.sender];
+
+        require(commit.commitHash != bytes32(0), "No commit to cancel");
+        require(!commit.revealed, "Cannot cancel a revealed bid");
+
+        uint256 refundAmount = commit.collateral;
+
+        // Reset the commit by deleting it. The bidder's address remains in the bidders array
+        // but will be ignored during settlement as their commit is empty.
+        delete auction.commits[msg.sender];
+
+        emit BidCancelled(msg.sender, currentAuctionId, refundAmount);
+
+        // Refund the collateral
+        (bool sent, ) = msg.sender.call{value: refundAmount}("");
+        require(sent, "Refund failed");
     }
     function settleAuction() external onlyAfterReveal(currentAuctionId) lock {
         Auction storage auction = auctions[currentAuctionId];
@@ -189,6 +227,13 @@ contract HighestVoice {
             emit Refund(bidder, currentAuctionId, refund);
         }
         emit NewWinner(winner, currentAuctionId, highest, winCommit.text, winCommit.imageCid, winCommit.voiceCid);
+
+        if (second > 0) {
+            minimumCollateral = second;
+        } else {
+            minimumCollateral = INITIAL_MINIMUM_COLLATERAL;
+        }
+
         _startNewAuction();
     }
     function _startNewAuction() internal {

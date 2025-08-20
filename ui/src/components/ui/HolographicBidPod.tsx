@@ -4,11 +4,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useAuctionInfo, useCommitBid, useRevealBid, useMyParticipation, useRaiseCommit } from '@/hooks/useHighestVoice';
+import { useAuctionInfo, useCommitBid, useRevealBid, useMyParticipation, useRaiseCommit, useMinimumCollateral } from '@/hooks/useHighestVoice';
 import { useUserBids, useCanRaiseBid } from '@/hooks/useUserBids';
 import { keccak256, parseEther, encodePacked, toHex, Hex, formatEther } from 'viem';
 import { toast } from 'react-hot-toast';
-import { saveCommitPreimage } from '@/utils/commitPreimage';
+import { getCommitPreimage, saveCommitPreimage } from '@/utils/commitPreimage';
 import { upsertActiveBid } from '@/utils/bidStorage';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
@@ -30,14 +30,18 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
   const { canRaise, currentAmount } = useCanRaiseBid();
   const { hasParticipated, collateral, revealed, isLoading: isLoadingParticipation } = useMyParticipation();
   const { raiseCommit, isConfirming: isRaising } = useRaiseCommit();
+  const { minimumCollateral } = useMinimumCollateral();
 
   // Form state
   const [bidAmount, setBidAmount] = useState('');
+  const [collateralAmount, setCollateralAmount] = useState('');
   const [text, setText] = useState('');
   const [imageCid, setImageCid] = useState('');
   const [voiceCid, setVoiceCid] = useState('');
   const [salt, setSalt] = useState<Hex | ''>('');
   const [commitHash, setCommitHash] = useState<Hex | ''>('');
+  const [isBidInfoHidden, setIsBidInfoHidden] = useState(false);
+  const [hasConfirmedSave, setHasConfirmedSave] = useState(false);
 
   const [pulseColor, setPulseColor] = useState('#00ffff');
 
@@ -48,8 +52,20 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
         return `hsl(${hash % 360}, 70%, 60%)`;
       };
       setPulseColor(generateColorFromAddress(address));
+
+      if (auctionId === undefined) return;
+      const preimage = getCommitPreimage(address, auctionId);
+      if (preimage) {
+        setBidAmount(preimage.amount);
+        setText(preimage.text);
+        setImageCid(preimage.imageCid);
+        setVoiceCid(preimage.voiceCid);
+        setSalt(preimage.salt);
+        setCommitHash(preimage.commitHash);
+        setIsBidInfoHidden(preimage.isHidden || false);
+      }
     }
-  }, [address]);
+  }, [address, auctionId]);
 
   const handleGenerateCommit = () => {
     const randomSalt = toHex(crypto.getRandomValues(new Uint8Array(32)));
@@ -87,17 +103,44 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
       toast.error('Please enter a positive bid amount.');
       return;
     }
+    if (!collateralAmount || parseEther(collateralAmount) <= 0n) {
+      toast.error('Please enter a positive collateral amount.');
+      return;
+    }
+    if (minimumCollateral !== undefined && parseEther(collateralAmount) < minimumCollateral) {
+      toast.error(`Your collateral must be at least the minimum collateral of ${formatEther(minimumCollateral)} ETH.`);
+      return;
+    }
+    if (parseEther(collateralAmount) > parseEther(bidAmount)) {
+      toast.error('Collateral cannot be greater than the bid amount.');
+      return;
+    }
+
+    // Calculate remaining amount to pay at reveal
+    const bidAmountNum = parseFloat(bidAmount);
+    const collateralAmountNum = parseFloat(collateralAmount);
+    const remainingToPayAtReveal = Math.max(0, bidAmountNum - collateralAmountNum);
+
+    // Prompt user to confirm remaining amount
+    const confirmMessage = `Remaining to pay at reveal ${remainingToPayAtReveal.toFixed(6)} ETH\n\nPlease confirm this amount and ensure you have sufficient funds for the reveal phase.`;
+    
+    if (!confirm(confirmMessage)) {
+      return;
+    }
     // Persist preimage for raise and reveal flows
     try {
       saveCommitPreimage(address, {
         auctionId: auctionId.toString(),
         amount: bidAmount,
+        collateralAmount,
+        remainingToPayAtReveal: remainingToPayAtReveal.toString(),
         text,
         imageCid,
         voiceCid,
         salt: salt as Hex,
         commitHash: commitHash as Hex,
         updatedAt: Date.now(),
+        isHidden: isBidInfoHidden,
       });
       // Also persist an active bid entry for history
       upsertActiveBid(address, {
@@ -138,7 +181,9 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
 
     // Otherwise, submit initial commit
     try {
-      commitBid(commitHash as Hex, bidAmount);
+      commitBid(commitHash as Hex, {
+        value: parseEther(collateralAmount),
+      });
     } catch (err) {
       console.error('commitBid failed', err);
       const msg = (err as any)?.message || '';
@@ -151,11 +196,34 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
   };
 
   const handleReveal = () => {
-    if (!salt) {
-      toast.error('Salt is missing.');
+    if (!address || auctionId === undefined) {
+      toast.error('Wallet not connected or auction not loaded.');
       return;
     }
-    revealBid(bidAmount, text, imageCid, voiceCid, salt);
+
+    let finalBidAmount = bidAmount;
+    const preimage = getCommitPreimage(address, auctionId);
+
+    if (!preimage || !preimage.amount) {
+      const userInput = prompt('Your stored bid was not found. Please enter your exact bid amount in ETH:');
+      if (!userInput) {
+        toast.error('Bid amount is required to reveal.');
+        return;
+      }
+      finalBidAmount = userInput;
+    } else {
+      finalBidAmount = preimage.amount;
+    }
+
+    if (!finalBidAmount) {
+      toast.error('Bid amount is required to reveal.');
+      return;
+    }
+
+    const bidAmountWei = parseEther(finalBidAmount);
+    const valueToSend = bidAmountWei > collateral ? bidAmountWei - collateral : 0n;
+
+    revealBid(finalBidAmount, preimage?.text || '', preimage?.imageCid || '', preimage?.voiceCid || '', preimage?.salt as Hex, valueToSend);
   };
 
   if (!isConnected) {
@@ -168,13 +236,15 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
         <Card className="bg-gradient-to-br from-purple-900/20 to-cyan-900/20 border-purple-500/30 backdrop-blur-md">
           <CardContent className="p-6">
             <div className="text-center space-y-4">
-              <div className="text-cyan-400 text-lg font-semibold">
-                Connect to Bid
+              <div className="flex flex-col gap-4">
+                <div className="text-cyan-400 text-lg font-semibold">
+                  Connect to Bid
+                </div>
+                <p className="text-sm text-gray-300">
+                  Connect your wallet to participate in the auction
+                </p>
+                <ConnectButton />
               </div>
-              <p className="text-sm text-gray-300">
-                Connect your wallet to participate in the auction
-              </p>
-              <ConnectButton />
             </div>
           </CardContent>
         </Card>
@@ -222,30 +292,37 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
               </TabsList>
 
               <TabsContent value="commit" className="space-y-4">
-                {hasParticipated && !revealed && (
-                  <div className="p-3 bg-yellow-500/20 border border-yellow-500/30 rounded-lg">
-                    <p className="text-sm text-yellow-300">
-                      {isLoadingParticipation ? 'Loading your on-chain collateral...' : `You have an active bid of ${formatEther(collateral)} ETH`}
-                    </p>
-                    {canRaise && (
-                      <p className="text-xs text-yellow-400 mt-1">
-                        You can raise your bid in the "My Bids" tab
-                      </p>
-                    )}
-                  </div>
-                )}
-                
                 <div>
                   <label className="text-sm font-medium mb-2 block">Bid Amount (ETH)</label>
                   <Input
                     type="number"
                     step="0.01"
                     min="0"
-                    placeholder={canRaise ? formatEther(currentAmount) : "0.1"}
+                    placeholder="e.g., 1.25"
                     value={bidAmount}
                     onChange={(e) => setBidAmount(e.target.value)}
                     className="bg-black/20 border-purple-500/30 text-cyan-300"
                   />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Collateral Amount (ETH)</label>
+                  <Input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    placeholder={`Min: ${minimumCollateral ? formatEther(minimumCollateral) : '0.01'}`}
+                    value={collateralAmount}
+                    onChange={(e) => setCollateralAmount(e.target.value)}
+                    className="bg-black/20 border-purple-500/30 text-cyan-300"
+                  />
+                  <p className="text-xs text-cyan-400 mt-1">
+                    Will send: {collateralAmount ? parseEther(collateralAmount).toString() : '0'} wei
+                  </p>
+                  {minimumCollateral !== undefined && (
+                    <p className="text-xs text-cyan-400 mt-1">
+                      Minimum collateral: {formatEther(minimumCollateral)} ETH
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-2 block">Text Content</label>

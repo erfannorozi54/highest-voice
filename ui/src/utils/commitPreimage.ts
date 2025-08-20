@@ -3,12 +3,15 @@ export type Hex = `0x${string}`;
 export interface CommitPreimage {
   auctionId: string; // store as string for JSON
   amount: string; // ETH string
+  collateralAmount?: string; // ETH string for collateral
+  remainingToPayAtReveal?: string; // ETH string for remaining amount
   text: string;
   imageCid: string;
   voiceCid: string;
   salt: Hex;
   commitHash: Hex;
   updatedAt: number;
+  isHidden?: boolean;
 }
 
 const STORAGE_PREFIX = 'hv_preimage_';
