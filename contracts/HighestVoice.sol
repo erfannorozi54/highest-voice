@@ -12,46 +12,53 @@ contract HighestVoice {
     event NewCommit(address indexed bidder, uint256 auctionId);
     event NewReveal(address indexed bidder, uint256 auctionId, uint256 bid);
     event NewWinner(address indexed winner, uint256 auctionId, uint256 amount, string text, string imageCid, string voiceCid);
-    event Refund(address indexed bidder, uint256 auctionId, uint256 amount);
+    event RefundRecorded(address indexed bidder, uint256 auctionId, uint256 amount);
+    event RefundWithdrawn(address indexed bidder, uint256 auctionId, uint256 amount);
     event BidCancelled(address indexed bidder, uint256 auctionId, uint256 amount);
+    event SettlementProgress(uint256 indexed auctionId, uint256 processed, uint256 total, bool complete);
 
     // =============== STRUCTS ===============
     struct Post {
         address owner;
-        string text; // ≤100 words
-        string imageCid; // ≤500kB
-        string voiceCid; // ≤1MB, ≤60s
+        string text; // ≤500 characters (enforced on-chain)
+        string imageCid; // ≤500kB CID string length (actual IPFS file size enforced off-chain)
+        string voiceCid; // ≤1MB CID string length (actual IPFS file size enforced off-chain)
     }
     struct BidCommit {
         bytes32 commitHash;
         uint256 collateral;
         bool revealed;
         uint256 revealedBid;
-        string text;
-        string imageCid;
-        string voiceCid;
+        // Strings removed - only winner's post is stored in auction.winnerPost
     }
     struct Auction {
         uint256 startTime;
         uint256 commitEnd;
         uint256 revealEnd;
         bool settled;
-        address[] bidders;
+        address[] revealedBidders; // Only revealed bidders for efficient settlement
         mapping(address => BidCommit) commits;
+        mapping(address => bool) hasCommitted; // Track committed bidders
+        mapping(address => bool) hasCanceled; // Track canceled bidders to prevent re-entry
         address winner;
         uint256 winningBid;
         uint256 secondBid;
         Post winnerPost;
+        // Paged settlement state
+        uint256 settlementProcessed; // Number of revealed bidders processed
+        bool winnerDetermined; // Whether winner has been determined
     }
 
     // =============== CONSTANTS ===============
     uint256 public constant COMMIT_DURATION = 12 hours;
     uint256 public constant REVEAL_DURATION = 12 hours;
-    uint256 public constant WORD_LIMIT = 100;
+    uint256 public constant TEXT_CHARACTER_LIMIT = 500; // More gas-efficient than word counting
     uint256 public constant IMAGE_CID_LIMIT = 500 * 1024; // bytes
     uint256 public constant VOICE_CID_LIMIT = 1024 * 1024; // bytes
-    uint256 public constant VOICE_SECONDS_LIMIT = 60; // metadata only
     uint256 public constant INITIAL_MINIMUM_COLLATERAL = 0.01 ether;
+    uint256 public constant MAX_MINIMUM_COLLATERAL = 10 ether; // Cap to prevent griefing
+    uint256 public constant SETTLEMENT_BATCH_SIZE = 50; // Process max 50 bidders per settlement call
+    uint256 public constant MAX_REVEALS_PER_AUCTION = 2000; // Cap reveals to prevent economic DoS
 
     // =============== STATE ===============
     uint256 public currentAuctionId;
@@ -59,6 +66,10 @@ contract HighestVoice {
     mapping(uint256 => Auction) private auctions;
     Post public lastWinnerPost;
     uint256 public lastWinnerTime;
+    uint256 public lastSettledAuctionId; // For accurate projection window
+    
+    // Pull-over-push refund pattern
+    mapping(uint256 => mapping(address => uint256)) public refunds;
 
     // =============== REENTRANCY ===============
     uint256 private unlocked = 1;
@@ -96,14 +107,40 @@ contract HighestVoice {
     function getCountdownEnd() external view returns (uint256) {
         return auctions[currentAuctionId].revealEnd;
     }
+    
+    /**
+     * @notice Get settlement progress for an auction
+     * @param auctionId The auction ID to check
+     * @return settled Whether auction is fully settled
+     * @return winnerDetermined Whether winner has been determined
+     * @return processed Number of bidders processed for refunds
+     * @return total Total number of revealed bidders
+     */
+    function getSettlementProgress(uint256 auctionId) 
+        external 
+        view 
+        returns (bool settled, bool winnerDetermined, uint256 processed, uint256 total) 
+    {
+        Auction storage auction = auctions[auctionId];
+        return (
+            auction.settled,
+            auction.winnerDetermined,
+            auction.settlementProcessed,
+            auction.revealedBidders.length
+        );
+    }
 
     // =============== AUCTION LOGIC ===============
     function commitBid(bytes32 commitHash) external payable onlyDuringCommit(currentAuctionId) lock {
         Auction storage auction = auctions[currentAuctionId];
-        require(auction.commits[msg.sender].commitHash == bytes32(0), "Already committed");
+        require(!auction.hasCommitted[msg.sender], "Already committed");
+        require(!auction.hasCanceled[msg.sender], "Cannot recommit after canceling");
         require(msg.value >= minimumCollateral, "Insufficient collateral");
-        auction.bidders.push(msg.sender);
-        auction.commits[msg.sender] = BidCommit({commitHash: commitHash, collateral: msg.value, revealed: false, revealedBid: 0, text: "", imageCid: "", voiceCid: ""});
+        
+        // Mark as committed
+        auction.hasCommitted[msg.sender] = true;
+        
+        auction.commits[msg.sender] = BidCommit({commitHash: commitHash, collateral: msg.value, revealed: false, revealedBid: 0});
         emit NewCommit(msg.sender, currentAuctionId);
     }
     function revealBid(uint256 bidAmount, string calldata text, string calldata imageCid, string calldata voiceCid, bytes32 salt) external payable onlyDuringReveal(currentAuctionId) lock {
@@ -111,8 +148,8 @@ contract HighestVoice {
         BidCommit storage commit = auction.commits[msg.sender];
         require(commit.commitHash != bytes32(0), "No commit");
         require(!commit.revealed, "Already revealed");
-        require(commit.commitHash == keccak256(abi.encodePacked(bidAmount, text, imageCid, voiceCid, salt)), "Invalid reveal");
-        require(_wordCount(text) <= WORD_LIMIT, "Text too long");
+        require(commit.commitHash == keccak256(abi.encode(bidAmount, text, imageCid, voiceCid, salt)), "Invalid reveal");
+        require(bytes(text).length <= TEXT_CHARACTER_LIMIT, "Text too long");
         require(bytes(imageCid).length <= IMAGE_CID_LIMIT, "Image CID too large");
         require(bytes(voiceCid).length <= VOICE_CID_LIMIT, "Voice CID too large");
 
@@ -121,19 +158,28 @@ contract HighestVoice {
 
         commit.revealed = true;
         commit.revealedBid = bidAmount;
-        commit.text = text;
-        commit.imageCid = imageCid;
-        commit.voiceCid = voiceCid;
+        // Strings no longer stored in commit - only winner's post is kept
 
-        uint256 refundAmount = totalProvided - bidAmount;
-        commit.collateral = bidAmount; // Update collateral to the actual bid amount for settlement
+        // Option A: Defer all refunds to settlement
+        // Just update collateral with total provided, compute refunds later
+        commit.collateral = totalProvided;
+        
+        // Add to revealed bidders for efficient settlement (with spam protection)
+        require(auction.revealedBidders.length < MAX_REVEALS_PER_AUCTION, "Too many reveals");
+        auction.revealedBidders.push(msg.sender);
+        
+        // Track winner incrementally to avoid O(N) scan during settlement
+        // Tie-breaking: earlier reveals win (deterministic based on reveal order)
+        if (bidAmount > auction.winningBid) {
+            auction.secondBid = auction.winningBid;
+            auction.winningBid = bidAmount;
+            auction.winner = msg.sender;
+            auction.winnerPost = Post({owner: msg.sender, text: text, imageCid: imageCid, voiceCid: voiceCid});
+        } else if (bidAmount > auction.secondBid) {
+            auction.secondBid = bidAmount;
+        }
 
         emit NewReveal(msg.sender, currentAuctionId, bidAmount);
-
-        if (refundAmount > 0) {
-            (bool sent, ) = msg.sender.call{value: refundAmount}("");
-            require(sent, "Immediate refund failed");
-        }
     }
     /**
      * @notice Increase collateral and/or update commitment during commit phase.
@@ -142,7 +188,7 @@ contract HighestVoice {
     function raiseCommit(bytes32 newCommitHash) external payable onlyDuringCommit(currentAuctionId) lock {
         Auction storage auction = auctions[currentAuctionId];
         BidCommit storage commit = auction.commits[msg.sender];
-        require(commit.commitHash != bytes32(0), "No commit");
+        require(auction.hasCommitted[msg.sender], "No commit");
         require(!commit.revealed, "Already revealed");
         require(newCommitHash != bytes32(0), "Invalid hash");
         if (msg.value > 0) {
@@ -158,83 +204,127 @@ contract HighestVoice {
         Auction storage auction = auctions[currentAuctionId];
         BidCommit storage commit = auction.commits[msg.sender];
 
-        require(commit.commitHash != bytes32(0), "No commit to cancel");
+        require(auction.hasCommitted[msg.sender], "No commit to cancel");
         require(!commit.revealed, "Cannot cancel a revealed bid");
 
         uint256 refundAmount = commit.collateral;
 
-        // Reset the commit by deleting it. The bidder's address remains in the bidders array
-        // but will be ignored during settlement as their commit is empty.
+        // Reset the commit and commitment status
         delete auction.commits[msg.sender];
+        auction.hasCommitted[msg.sender] = false;
+        auction.hasCanceled[msg.sender] = true; // Prevent re-committing
+        
+        // Note: bidder will not appear in settlement since not in revealedBidders
 
+        // Option A: Defer all refunds to settlement
+        // Record the refund for immediate withdrawal since auction is still active
+        refunds[currentAuctionId][msg.sender] += refundAmount;
+        
         emit BidCancelled(msg.sender, currentAuctionId, refundAmount);
-
-        // Refund the collateral
-        (bool sent, ) = msg.sender.call{value: refundAmount}("");
-        require(sent, "Refund failed");
+        emit RefundRecorded(msg.sender, currentAuctionId, refundAmount);
     }
+    /**
+     * @notice Settle auction in pages to prevent gas limit issues from Sybil attacks
+     * @dev Can be called multiple times until settlement is complete
+     */
     function settleAuction() external onlyAfterReveal(currentAuctionId) lock {
         Auction storage auction = auctions[currentAuctionId];
         require(!auction.settled, "Already settled");
-        uint256 highest = 0;
-        uint256 second = 0;
-        address winner = address(0);
-        // removed unused local variables for post data
-        // Find highest and second-highest revealed bids
-        for (uint256 i = 0; i < auction.bidders.length; i++) {
-            address bidder = auction.bidders[i];
-            BidCommit storage commit = auction.commits[bidder];
-            if (commit.revealed && commit.revealedBid > highest) {
-                second = highest;
-                highest = commit.revealedBid;
-                winner = bidder;
-            } else if (commit.revealed && commit.revealedBid > second) {
-                second = commit.revealedBid;
+        
+        uint256 revealedCount = auction.revealedBidders.length;
+        
+        // Step 1: Finalize winner determination if not already done
+        if (!auction.winnerDetermined) {
+            // Handle no-winner case - batch refund revealed bidders to prevent gas DoS
+            if (auction.winner == address(0)) {
+                uint256 noWinnerStartIdx = auction.settlementProcessed;
+                uint256 noWinnerEndIdx = noWinnerStartIdx + SETTLEMENT_BATCH_SIZE;
+                if (noWinnerEndIdx > revealedCount) {
+                    noWinnerEndIdx = revealedCount;
+                }
+
+                for (uint256 i = noWinnerStartIdx; i < noWinnerEndIdx; i++) {
+                    address bidder = auction.revealedBidders[i];
+                    uint256 amt = auction.commits[bidder].collateral;
+                    if (amt > 0) {
+                        refunds[currentAuctionId][bidder] = amt;
+                        emit RefundRecorded(bidder, currentAuctionId, amt);
+                    }
+                }
+                auction.settlementProcessed = noWinnerEndIdx;
+
+                bool noWinnerComplete = noWinnerEndIdx >= revealedCount;
+                emit SettlementProgress(currentAuctionId, noWinnerEndIdx, revealedCount, noWinnerComplete);
+                if (!noWinnerComplete) return; // More batches needed
+
+                auction.settled = true;
+                auction.winnerDetermined = true;
+                minimumCollateral = INITIAL_MINIMUM_COLLATERAL;
+                delete auction.revealedBidders;
+                emit NewWinner(address(0), currentAuctionId, 0, "", "", "");
+                _startNewAuction();
+                return;
             }
+            
+            // Winner already tracked incrementally, just finalize
+            auction.winnerDetermined = true;
+            lastWinnerPost = auction.winnerPost;
+            lastWinnerTime = block.timestamp;
+            
+            emit NewWinner(auction.winner, currentAuctionId, auction.winningBid, auction.winnerPost.text, auction.winnerPost.imageCid, auction.winnerPost.voiceCid);
         }
-        require(winner != address(0), "No valid bids");
-        // Save winner's post
-        BidCommit storage winCommit = auction.commits[winner];
-        auction.winner = winner;
-        auction.winningBid = highest;
-        auction.secondBid = second;
-        auction.settled = true;
-        auction.winnerPost = Post({owner: winner, text: winCommit.text, imageCid: winCommit.imageCid, voiceCid: winCommit.voiceCid});
-        lastWinnerPost = auction.winnerPost;
-        lastWinnerTime = block.timestamp;
-        // Refunds and payments
-        for (uint256 i = 0; i < auction.bidders.length; i++) {
-            address bidder = auction.bidders[i];
-            BidCommit storage commit = auction.commits[bidder];
-            uint256 refund = 0;
-            if (bidder == winner) {
-                // Winner pays second-highest bid
-                refund = commit.collateral > second ? commit.collateral - second : 0;
-                if (refund > 0) {
-                    (bool sent,) = bidder.call{value: refund}("");
-                    require(sent, "Refund failed");
-                }
-            } else if (commit.revealed) {
-                // All other revealed bidders get full refund
-                refund = commit.collateral;
-                if (refund > 0) {
-                    (bool sent,) = bidder.call{value: refund}("");
-                    require(sent, "Refund failed");
-                }
+        
+        // Step 2: Process refunds in batches
+        uint256 startIdx = auction.settlementProcessed;
+        uint256 endIdx = startIdx + SETTLEMENT_BATCH_SIZE;
+        if (endIdx > revealedCount) {
+            endIdx = revealedCount;
+        }
+        
+        // Process this batch of revealed bidders
+        for (uint256 i = startIdx; i < endIdx; i++) {
+            address bidder = auction.revealedBidders[i];
+            BidCommit storage c = auction.commits[bidder];
+            uint256 refundAmount = 0;
+            
+            if (bidder == auction.winner) {
+                // Winner always pays second-highest bid (true second-price auction)
+                refundAmount = c.collateral > auction.secondBid ? c.collateral - auction.secondBid : 0;
             } else {
-                // Not revealed: collateral is forfeited
+                // All other revealed bidders get full refund of their total collateral
+                refundAmount = c.collateral;
             }
-            emit Refund(bidder, currentAuctionId, refund);
+            
+            if (refundAmount > 0) {
+                refunds[currentAuctionId][bidder] = refundAmount;
+                emit RefundRecorded(bidder, currentAuctionId, refundAmount);
+            }
         }
-        emit NewWinner(winner, currentAuctionId, highest, winCommit.text, winCommit.imageCid, winCommit.voiceCid);
-
-        if (second > 0) {
-            minimumCollateral = second;
-        } else {
-            minimumCollateral = INITIAL_MINIMUM_COLLATERAL;
+        
+        // Update processed count
+        auction.settlementProcessed = endIdx;
+        
+        // Emit progress event
+        bool isComplete = endIdx >= revealedCount;
+        emit SettlementProgress(currentAuctionId, endIdx, revealedCount, isComplete);
+        
+        // Step 3: Finalize if all bidders processed
+        if (isComplete) {
+            auction.settled = true;
+            lastSettledAuctionId = currentAuctionId;
+            
+            // Clean up arrays to save storage
+            delete auction.revealedBidders;
+            
+            // Update minimum collateral for next auction with cap to prevent griefing
+            if (auction.secondBid > 0) {
+                minimumCollateral = auction.secondBid > MAX_MINIMUM_COLLATERAL ? MAX_MINIMUM_COLLATERAL : auction.secondBid;
+            } else {
+                minimumCollateral = INITIAL_MINIMUM_COLLATERAL;
+            }
+            
+            _startNewAuction();
         }
-
-        _startNewAuction();
     }
     function _startNewAuction() internal {
         currentAuctionId++;
@@ -244,13 +334,35 @@ contract HighestVoice {
         auction.revealEnd = auction.commitEnd + REVEAL_DURATION;
         auction.settled = false;
     }
+    
+    /**
+     * @notice Withdraw refund from a settled auction (pull-over-push pattern)
+     * @param auctionId The auction ID to withdraw refund from
+     */
+    function withdrawRefund(uint256 auctionId) external lock {
+        require(auctionId <= currentAuctionId, "Invalid auction");
+        // Allow withdrawal if auction is settled OR if user has canceled their bid
+        require(auctions[auctionId].settled || auctions[auctionId].hasCanceled[msg.sender], "Auction not settled");
+        uint256 amount = refunds[auctionId][msg.sender];
+        require(amount > 0, "No refund available");
+        
+        // Clear refund before transfer to prevent reentrancy
+        refunds[auctionId][msg.sender] = 0;
+        
+        emit RefundWithdrawn(msg.sender, auctionId, amount);
+        
+        (bool sent, ) = msg.sender.call{value: amount}("");
+        require(sent, "Withdrawal failed");
+    }
     // =============== VIEW FUNCTIONS ===============
     function getAuctionTimes(uint256 auctionId) external view returns (uint256 start, uint256 commitEnd, uint256 revealEnd) {
         Auction storage auction = auctions[auctionId];
         return (auction.startTime, auction.commitEnd, auction.revealEnd);
     }
     function getWinnerPost() external view returns (address owner, string memory text, string memory imageCid, string memory voiceCid, uint256 projectedUntil) {
-        return (lastWinnerPost.owner, lastWinnerPost.text, lastWinnerPost.imageCid, lastWinnerPost.voiceCid, lastWinnerTime + 24 hours);
+        // Use reveal end time of settled auction for accurate projection window
+        uint256 projectionEnd = lastSettledAuctionId > 0 ? auctions[lastSettledAuctionId].revealEnd + 24 hours : lastWinnerTime + 24 hours;
+        return (lastWinnerPost.owner, lastWinnerPost.text, lastWinnerPost.imageCid, lastWinnerPost.voiceCid, projectionEnd);
     }
     function getAuctionResult(uint256 auctionId) external view returns (bool settled, address winner, uint256 winningBid, uint256 secondBid) {
         Auction storage a = auctions[auctionId];
@@ -263,29 +375,75 @@ contract HighestVoice {
             bytes32 commitHash,
             uint256 collateral,
             bool revealed,
-            uint256 revealedBid,
-            string memory text,
-            string memory imageCid,
-            string memory voiceCid
+            uint256 revealedBid
         )
     {
         BidCommit storage c = auctions[auctionId].commits[msg.sender];
-        return (c.commitHash, c.collateral, c.revealed, c.revealedBid, c.text, c.imageCid, c.voiceCid);
+        return (c.commitHash, c.collateral, c.revealed, c.revealedBid);
     }
-    // =============== UTILITY ===============
-    function _wordCount(string memory str) internal pure returns (uint256 count) {
-        bytes memory b = bytes(str);
-        bool inWord = false;
-        for (uint256 i = 0; i < b.length; i++) {
-            if (b[i] != 0x20 && b[i] != 0x0A && b[i] != 0x09) {
-                if (!inWord) {
-                    count++;
-                    inWord = true;
-                }
-            } else {
-                inWord = false;
-            }
+    
+    /**
+     * @notice Check available refund for a user in a specific auction
+     * @param auctionId The auction ID to check
+     * @param user The user address to check
+     * @return amount The refund amount available for withdrawal
+     */
+    function getRefundAmount(uint256 auctionId, address user) external view returns (uint256 amount) {
+        return refunds[auctionId][user];
+    }
+    
+    /**
+     * @notice Check if user has any pending refunds across multiple auctions
+     * @dev WARNING: This function loops linearly over the auction range and may consume
+     *      significant gas if called on-chain with a large range. Intended for off-chain use.
+     * @param user The user address to check
+     * @param fromAuctionId Starting auction ID to check from
+     * @param toAuctionId Ending auction ID to check to
+     * @return totalRefunds Total refund amount across specified auction range
+     */
+    function getTotalRefunds(address user, uint256 fromAuctionId, uint256 toAuctionId) 
+        external 
+        view 
+        returns (uint256 totalRefunds) 
+    {
+        require(fromAuctionId <= toAuctionId, "Invalid auction range");
+        require(toAuctionId <= currentAuctionId, "Future auction ID");
+        
+        for (uint256 i = fromAuctionId; i <= toAuctionId; i++) {
+            totalRefunds += refunds[i][user];
         }
     }
+    /**
+     * @notice Withdraw refunds from multiple auctions in a single transaction
+     * @param auctionIds Array of auction IDs to withdraw from
+     */
+    function withdrawMultipleRefunds(uint256[] calldata auctionIds) external lock {
+        require(auctionIds.length > 0, "No auctions specified");
+        require(auctionIds.length <= 20, "Too many auctions"); // Prevent gas limit issues
+        
+        uint256 totalAmount = 0;
+        
+        // Calculate total and clear refunds
+        for (uint256 i = 0; i < auctionIds.length; i++) {
+            uint256 auctionId = auctionIds[i];
+            require(auctionId <= currentAuctionId, "Invalid auction");
+            require(auctions[auctionId].settled || auctions[auctionId].hasCanceled[msg.sender], "Auction not settled");
+            uint256 amount = refunds[auctionId][msg.sender];
+            
+            if (amount > 0) {
+                refunds[auctionId][msg.sender] = 0;
+                totalAmount += amount;
+                emit RefundWithdrawn(msg.sender, auctionId, amount);
+            }
+        }
+        
+        require(totalAmount > 0, "No refunds available");
+        
+        (bool sent, ) = msg.sender.call{value: totalAmount}("");
+        require(sent, "Withdrawal failed");
+    }
+    
+    // =============== UTILITY ===============
+    // Removed _wordCount function - replaced with simple character limit check for gas efficiency
     receive() external payable { revert("Use commitBid"); }
 }
