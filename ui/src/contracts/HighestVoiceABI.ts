@@ -138,7 +138,63 @@ export const HIGHEST_VOICE_ABI = [
         "type": "uint256"
       }
     ],
-    "name": "Refund",
+    "name": "RefundRecorded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "bidder",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "auctionId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "RefundWithdrawn",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "auctionId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "processed",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "total",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "complete",
+        "type": "bool"
+      }
+    ],
+    "name": "SettlementProgress",
     "type": "event"
   },
   {
@@ -182,6 +238,32 @@ export const HIGHEST_VOICE_ABI = [
   },
   {
     "inputs": [],
+    "name": "MAX_MINIMUM_COLLATERAL",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MAX_REVEALS_PER_AUCTION",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "REVEAL_DURATION",
     "outputs": [
       {
@@ -195,33 +277,33 @@ export const HIGHEST_VOICE_ABI = [
   },
   {
     "inputs": [],
+    "name": "SETTLEMENT_BATCH_SIZE",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "TEXT_CHARACTER_LIMIT",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "VOICE_CID_LIMIT",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "VOICE_SECONDS_LIMIT",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "WORD_LIMIT",
     "outputs": [
       {
         "internalType": "uint256",
@@ -370,21 +452,93 @@ export const HIGHEST_VOICE_ABI = [
         "internalType": "uint256",
         "name": "revealedBid",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "auctionId",
+        "type": "uint256"
       },
       {
-        "internalType": "string",
-        "name": "text",
-        "type": "string"
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "getRefundAmount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "auctionId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getSettlementProgress",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "settled",
+        "type": "bool"
       },
       {
-        "internalType": "string",
-        "name": "imageCid",
-        "type": "string"
+        "internalType": "bool",
+        "name": "winnerDetermined",
+        "type": "bool"
       },
       {
-        "internalType": "string",
-        "name": "voiceCid",
-        "type": "string"
+        "internalType": "uint256",
+        "name": "processed",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "total",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "fromAuctionId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "toAuctionId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getTotalRefunds",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "totalRefunds",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -417,6 +571,19 @@ export const HIGHEST_VOICE_ABI = [
       {
         "internalType": "uint256",
         "name": "projectedUntil",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "lastSettledAuctionId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
         "type": "uint256"
       }
     ],
@@ -494,6 +661,30 @@ export const HIGHEST_VOICE_ABI = [
     "inputs": [
       {
         "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "refunds",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
         "name": "bidAmount",
         "type": "uint256"
       },
@@ -526,6 +717,32 @@ export const HIGHEST_VOICE_ABI = [
   {
     "inputs": [],
     "name": "settleAuction",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "auctionIds",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "withdrawMultipleRefunds",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "auctionId",
+        "type": "uint256"
+      }
+    ],
+    "name": "withdrawRefund",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

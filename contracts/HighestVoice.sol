@@ -29,7 +29,6 @@ contract HighestVoice {
         uint256 collateral;
         bool revealed;
         uint256 revealedBid;
-        // Strings removed - only winner's post is stored in auction.winnerPost
     }
     struct Auction {
         uint256 startTime;
@@ -59,6 +58,7 @@ contract HighestVoice {
     uint256 public constant MAX_MINIMUM_COLLATERAL = 10 ether; // Cap to prevent griefing
     uint256 public constant SETTLEMENT_BATCH_SIZE = 50; // Process max 50 bidders per settlement call
     uint256 public constant MAX_REVEALS_PER_AUCTION = 2000; // Cap reveals to prevent economic DoS
+    uint256 public constant RECENT_AUCTIONS = 7; // One week (7 x 24h)
 
     // =============== STATE ===============
     uint256 public currentAuctionId;
@@ -158,14 +158,48 @@ contract HighestVoice {
 
         commit.revealed = true;
         commit.revealedBid = bidAmount;
-        // Strings no longer stored in commit - only winner's post is kept
 
-        // Option A: Defer all refunds to settlement
-        // Just update collateral with total provided, compute refunds later
+        // Update collateral with total provided, compute refunds during settlement
         commit.collateral = totalProvided;
         
-        // Add to revealed bidders for efficient settlement (with spam protection)
-        require(auction.revealedBidders.length < MAX_REVEALS_PER_AUCTION, "Too many reveals");
+        // Add to revealed bidders with spam/grief protection
+        // If slots are full, only accept reveals that improve top-of-book and evict the lowest bid.
+        if (auction.revealedBidders.length >= MAX_REVEALS_PER_AUCTION) {
+            // Require the new reveal to strictly improve the second-highest bid when capacity is full
+            require(bidAmount > auction.secondBid, "Reveal slots full");
+
+            // Evict the lowest revealed bid to keep array bounded at MAX_REVEALS_PER_AUCTION
+            uint256 minIdx = 0;
+            uint256 minBid = type(uint256).max;
+            uint256 len = auction.revealedBidders.length;
+            for (uint256 i = 0; i < len;) {
+                address b = auction.revealedBidders[i];
+                uint256 rb = auction.commits[b].revealedBid;
+                if (rb < minBid) {
+                    minBid = rb;
+                    minIdx = i;
+                }
+                unchecked { ++i; }
+            }
+            address evicted = auction.revealedBidders[minIdx];
+            uint256 evictedAmt = auction.commits[evicted].collateral;
+            if (evictedAmt > 0) {
+                // Record refund for evicted bidder; withdrawal available immediately since bid is effectively canceled
+                refunds[currentAuctionId][evicted] += evictedAmt;
+                emit RefundRecorded(evicted, currentAuctionId, evictedAmt);
+                // Mark as canceled so they can withdraw immediately via withdrawRefund()
+                auction.hasCanceled[evicted] = true;
+            }
+            // Swap-remove the evicted bidder
+            auction.revealedBidders[minIdx] = auction.revealedBidders[len - 1];
+            auction.revealedBidders.pop();
+            
+            // Clean up evicted bidder's commit state to prevent inconsistencies
+            auction.commits[evicted].collateral = 0;
+            auction.commits[evicted].revealed = false;
+            auction.commits[evicted].commitHash = bytes32(0);
+            auction.hasCommitted[evicted] = false;
+        }
         auction.revealedBidders.push(msg.sender);
         
         // Track winner incrementally to avoid O(N) scan during settlement
@@ -180,21 +214,6 @@ contract HighestVoice {
         }
 
         emit NewReveal(msg.sender, currentAuctionId, bidAmount);
-    }
-    /**
-     * @notice Increase collateral and/or update commitment during commit phase.
-     *         Allows a bidder to raise their bid by topping up collateral and updating the commit hash.
-     */
-    function raiseCommit(bytes32 newCommitHash) external payable onlyDuringCommit(currentAuctionId) lock {
-        Auction storage auction = auctions[currentAuctionId];
-        BidCommit storage commit = auction.commits[msg.sender];
-        require(auction.hasCommitted[msg.sender], "No commit");
-        require(!commit.revealed, "Already revealed");
-        require(newCommitHash != bytes32(0), "Invalid hash");
-        if (msg.value > 0) {
-            commit.collateral += msg.value;
-        }
-        commit.commitHash = newCommitHash;
     }
 
     /**
@@ -213,11 +232,8 @@ contract HighestVoice {
         delete auction.commits[msg.sender];
         auction.hasCommitted[msg.sender] = false;
         auction.hasCanceled[msg.sender] = true; // Prevent re-committing
-        
-        // Note: bidder will not appear in settlement since not in revealedBidders
 
-        // Option A: Defer all refunds to settlement
-        // Record the refund for immediate withdrawal since auction is still active
+        // Record the refund for immediate withdrawal
         refunds[currentAuctionId][msg.sender] += refundAmount;
         
         emit BidCancelled(msg.sender, currentAuctionId, refundAmount);
@@ -243,13 +259,21 @@ contract HighestVoice {
                     noWinnerEndIdx = revealedCount;
                 }
 
-                for (uint256 i = noWinnerStartIdx; i < noWinnerEndIdx; i++) {
+                for (uint256 i = noWinnerStartIdx; i < noWinnerEndIdx;) {
                     address bidder = auction.revealedBidders[i];
                     uint256 amt = auction.commits[bidder].collateral;
                     if (amt > 0) {
-                        refunds[currentAuctionId][bidder] = amt;
+                        refunds[currentAuctionId][bidder] += amt;
                         emit RefundRecorded(bidder, currentAuctionId, amt);
+                        
+                        // Clean up bidder's commit state to prevent stale data
+                        auction.commits[bidder].collateral = 0;
+                        auction.commits[bidder].commitHash = bytes32(0);
+                        auction.commits[bidder].revealed = false;
+                        auction.commits[bidder].revealedBid = 0;
+                        auction.hasCommitted[bidder] = false;
                     }
+                    unchecked { ++i; }
                 }
                 auction.settlementProcessed = noWinnerEndIdx;
 
@@ -260,6 +284,7 @@ contract HighestVoice {
                 auction.settled = true;
                 auction.winnerDetermined = true;
                 minimumCollateral = INITIAL_MINIMUM_COLLATERAL;
+                lastSettledAuctionId = currentAuctionId; // Track settled auction for projection window
                 delete auction.revealedBidders;
                 emit NewWinner(address(0), currentAuctionId, 0, "", "", "");
                 _startNewAuction();
@@ -282,7 +307,7 @@ contract HighestVoice {
         }
         
         // Process this batch of revealed bidders
-        for (uint256 i = startIdx; i < endIdx; i++) {
+        for (uint256 i = startIdx; i < endIdx;) {
             address bidder = auction.revealedBidders[i];
             BidCommit storage c = auction.commits[bidder];
             uint256 refundAmount = 0;
@@ -296,9 +321,17 @@ contract HighestVoice {
             }
             
             if (refundAmount > 0) {
-                refunds[currentAuctionId][bidder] = refundAmount;
+                refunds[currentAuctionId][bidder] += refundAmount;
                 emit RefundRecorded(bidder, currentAuctionId, refundAmount);
+                
+                // Clean up bidder's commit state to prevent stale data and inconsistencies
+                c.collateral = 0;
+                c.commitHash = bytes32(0);
+                c.revealed = false;
+                c.revealedBid = 0;
+                auction.hasCommitted[bidder] = false;
             }
+            unchecked { ++i; }
         }
         
         // Update processed count
@@ -312,8 +345,6 @@ contract HighestVoice {
         if (isComplete) {
             auction.settled = true;
             lastSettledAuctionId = currentAuctionId;
-            
-            // Clean up arrays to save storage
             delete auction.revealedBidders;
             
             // Update minimum collateral for next auction with cap to prevent griefing
@@ -348,6 +379,32 @@ contract HighestVoice {
         
         // Clear refund before transfer to prevent reentrancy
         refunds[auctionId][msg.sender] = 0;
+        
+        emit RefundWithdrawn(msg.sender, auctionId, amount);
+        
+        (bool sent, ) = msg.sender.call{value: amount}("");
+        require(sent, "Withdrawal failed");
+    }
+    
+    /**
+     * @notice Withdraw collateral for a bid that was committed but never revealed.
+     *         Can be called any time after the reveal phase ends for that auction.
+     * @param auctionId The auction ID to withdraw from
+     */
+    function withdrawUnrevealedCollateral(uint256 auctionId) external lock {
+        require(auctionId <= currentAuctionId, "Invalid auction");
+        Auction storage auction = auctions[auctionId];
+        require(block.timestamp >= auction.revealEnd, "Reveal not ended");
+        BidCommit storage c = auction.commits[msg.sender];
+        require(c.commitHash != bytes32(0), "No commit");
+        require(!c.revealed, "Already revealed");
+        uint256 amount = c.collateral;
+        require(amount > 0, "No collateral");
+        
+        // Clear state before transferring to prevent reentrancy and double-withdraw
+        c.collateral = 0;
+        c.commitHash = bytes32(0);
+        auction.hasCommitted[msg.sender] = false;
         
         emit RefundWithdrawn(msg.sender, auctionId, amount);
         
@@ -409,9 +466,116 @@ contract HighestVoice {
         require(fromAuctionId <= toAuctionId, "Invalid auction range");
         require(toAuctionId <= currentAuctionId, "Future auction ID");
         
-        for (uint256 i = fromAuctionId; i <= toAuctionId; i++) {
+        for (uint256 i = fromAuctionId; i <= toAuctionId;) {
             totalRefunds += refunds[i][user];
+            unchecked { ++i; }
         }
+    }
+    
+    /**
+     * @notice Summary of user's funds over the last week of auctions: withdrawable now vs locked.
+     * @dev WARNING: Linear loop over recent auctions, intended primarily for off-chain calls.
+     *      - availableNow includes:
+     *          (a) refunds[i][msg.sender] if auction i is settled OR user canceled their bid in i
+     *          (b) collateral for an unrevealed commit if reveal has ended for i
+     *      - lockedActive includes:
+     *          collateral for auctions where now < revealEnd (commit or reveal phase)
+     * @return availableNow Total amount withdrawable now
+     * @return lockedActive Total amount locked because auctions are still active (commit/reveal)
+     */
+    function getMyFundsSummary()
+        external
+        view
+        returns (uint256 availableNow, uint256 lockedActive)
+    {
+        uint256 nowTs = block.timestamp;
+        uint256 startId = currentAuctionId >= RECENT_AUCTIONS ? (currentAuctionId - RECENT_AUCTIONS + 1) : 1;
+        for (uint256 i = startId; i <= currentAuctionId;) {
+            Auction storage a = auctions[i];
+
+            // Consider any recorded refunds
+            uint256 r = refunds[i][msg.sender];
+            bool settledOrCanceled = a.settled || a.hasCanceled[msg.sender];
+            if (r > 0) {
+                if (settledOrCanceled) {
+                    // Withdrawable now
+                    availableNow += r;
+                } else {
+                    // Refund recorded but not withdrawable until settlement
+                    lockedActive += r;
+                }
+            }
+
+            // Consider commit state, avoiding double-counting when a refund is already recorded but not withdrawable
+            BidCommit storage c = a.commits[msg.sender];
+            if (c.commitHash != bytes32(0)) {
+                if (!c.revealed) {
+                    if (nowTs >= a.revealEnd) {
+                        // Unrevealed after reveal end is withdrawable via withdrawUnrevealedCollateral
+                        availableNow += c.collateral;
+                    } else {
+                        // Active (commit phase)
+                        lockedActive += c.collateral;
+                    }
+                } else {
+                    // Revealed
+                    if (!a.settled) {
+                        // If a refund r was already recorded (e.g., partial settlement or eviction), skip counting collateral again
+                        if (r == 0) {
+                            lockedActive += c.collateral;
+                        }
+                    }
+                    // If settled, their withdrawable is represented by refunds[i][msg.sender] above
+                }
+            }
+            unchecked { ++i; }
+        }
+    }
+
+    /**
+     * @notice Withdraw all currently available funds for msg.sender across the last week of auctions.
+     * @dev Withdraws:
+     *      - Recorded refunds when the auction is settled or the user canceled their bid
+     *      - Unrevealed committed collateral when reveal has ended (via clearing commit state)
+     *      Does NOT withdraw refunds from unsettled auctions to preserve settlement ordering.
+     */
+    function withdrawAllAvailable() external lock {
+        uint256 totalAmount = 0;
+        uint256 nowTs = block.timestamp;
+        uint256 startId = currentAuctionId >= RECENT_AUCTIONS ? (currentAuctionId - RECENT_AUCTIONS + 1) : 1;
+
+        for (uint256 i = startId; i <= currentAuctionId;) {
+            Auction storage a = auctions[i];
+
+            // 1) Refunds from settled or canceled auctions
+            if (a.settled || a.hasCanceled[msg.sender]) {
+                uint256 r = refunds[i][msg.sender];
+                if (r > 0) {
+                    refunds[i][msg.sender] = 0;
+                    totalAmount += r;
+                    emit RefundWithdrawn(msg.sender, i, r);
+                }
+            }
+
+            // 2) Unrevealed collateral after reveal has ended
+            BidCommit storage c = a.commits[msg.sender];
+            if (c.commitHash != bytes32(0) && !c.revealed && nowTs >= a.revealEnd) {
+                uint256 amt = c.collateral;
+                if (amt > 0) {
+                    // Clear state to prevent double-withdraw
+                    c.collateral = 0;
+                    c.commitHash = bytes32(0);
+                    a.hasCommitted[msg.sender] = false;
+                    totalAmount += amt;
+                    emit RefundWithdrawn(msg.sender, i, amt);
+                }
+            }
+            unchecked { ++i; }
+        }
+
+        require(totalAmount > 0, "No funds available");
+        (bool sent, ) = msg.sender.call{value: totalAmount}("");
+        require(sent, "Withdrawal failed");
     }
     /**
      * @notice Withdraw refunds from multiple auctions in a single transaction
@@ -424,7 +588,7 @@ contract HighestVoice {
         uint256 totalAmount = 0;
         
         // Calculate total and clear refunds
-        for (uint256 i = 0; i < auctionIds.length; i++) {
+        for (uint256 i = 0; i < auctionIds.length;) {
             uint256 auctionId = auctionIds[i];
             require(auctionId <= currentAuctionId, "Invalid auction");
             require(auctions[auctionId].settled || auctions[auctionId].hasCanceled[msg.sender], "Auction not settled");
@@ -435,6 +599,7 @@ contract HighestVoice {
                 totalAmount += amount;
                 emit RefundWithdrawn(msg.sender, auctionId, amount);
             }
+            unchecked { ++i; }
         }
         
         require(totalAmount > 0, "No refunds available");
@@ -444,6 +609,5 @@ contract HighestVoice {
     }
     
     // =============== UTILITY ===============
-    // Removed _wordCount function - replaced with simple character limit check for gas efficiency
     receive() external payable { revert("Use commitBid"); }
 }
