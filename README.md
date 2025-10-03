@@ -37,7 +37,7 @@ npx hardhat deploy --tags all --network mainnet
 
 ## Project Structure
 
-```
+```tree
 ├── contracts/
 │   ├── HighestVoice.sol          # Main auction contract
 │   └── HighestVoiceKeeper.sol    # Chainlink Automation keeper

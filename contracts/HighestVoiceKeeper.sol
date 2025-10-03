@@ -70,7 +70,7 @@ contract HighestVoiceKeeper is AutomationCompatibleInterface {
      * @param performData Encoded auction ID (from checkUpkeep)
      */
     function performUpkeep(bytes calldata performData) external override {
-        (uint256 auctionId, uint256 processedBefore, uint256 total) = abi.decode(performData, (uint256, uint256, uint256));
+        (uint256 auctionId, , ) = abi.decode(performData, (uint256, uint256, uint256));
         
         // Verify upkeep is still needed (safety check)
         uint256 currentAuctionId = highestVoice.currentAuctionId();
