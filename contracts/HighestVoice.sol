@@ -16,6 +16,8 @@ contract HighestVoice {
     event RefundWithdrawn(address indexed bidder, uint256 auctionId, uint256 amount);
     event BidCancelled(address indexed bidder, uint256 auctionId, uint256 amount);
     event SettlementProgress(uint256 indexed auctionId, uint256 processed, uint256 total, bool complete);
+    event SurplusCalculated(uint256 indexed auctionId, uint256 amount);
+    event SurplusDistributed(uint256 deployerAmount, uint256 publicGoodsAmount, uint256 timestamp);
 
     // =============== STRUCTS ===============
     struct Post {
@@ -55,7 +57,7 @@ contract HighestVoice {
     uint256 public constant IMAGE_CID_LIMIT = 500 * 1024; // bytes
     uint256 public constant VOICE_CID_LIMIT = 1024 * 1024; // bytes
     uint256 public constant INITIAL_MINIMUM_COLLATERAL = 0.01 ether;
-    uint256 public constant MAX_MINIMUM_COLLATERAL = 10 ether; // Cap to prevent griefing
+    uint256 public constant MAX_MINIMUM_COLLATERAL = 1 ether; // Cap to prevent griefing
     uint256 public constant SETTLEMENT_BATCH_SIZE = 50; // Process max 50 bidders per settlement call
     uint256 public constant MAX_REVEALS_PER_AUCTION = 2000; // Cap reveals to prevent economic DoS
     uint256 public constant RECENT_AUCTIONS = 7; // One week (7 x 24h)
@@ -70,6 +72,13 @@ contract HighestVoice {
     
     // Pull-over-push refund pattern
     mapping(uint256 => mapping(address => uint256)) public refunds;
+    
+    // Treasury addresses (immutable, set at deployment)
+    address public immutable DEPLOYER;
+    address public immutable PROTOCOL_GUILD;
+    
+    // Accumulated surplus from auction winners (second-highest bids)
+    uint256 public accumulatedSurplus;
 
     // =============== REENTRANCY ===============
     uint256 private unlocked = 1;
@@ -98,7 +107,13 @@ contract HighestVoice {
     }
 
     // =============== CONSTRUCTOR ===============
-    constructor() {
+    /**
+     * @param protocolGuild Address for Protocol Guild (public goods funding)
+     */
+    constructor(address protocolGuild) {
+        require(protocolGuild != address(0), "Invalid Protocol Guild address");
+        DEPLOYER = msg.sender;
+        PROTOCOL_GUILD = protocolGuild;
         minimumCollateral = INITIAL_MINIMUM_COLLATERAL;
         _startNewAuction();
     }
@@ -165,10 +180,7 @@ contract HighestVoice {
         // Add to revealed bidders with spam/grief protection
         // If slots are full, only accept reveals that improve top-of-book and evict the lowest bid.
         if (auction.revealedBidders.length >= MAX_REVEALS_PER_AUCTION) {
-            // Require the new reveal to strictly improve the second-highest bid when capacity is full
-            require(bidAmount > auction.secondBid, "Reveal slots full");
-
-            // Evict the lowest revealed bid to keep array bounded at MAX_REVEALS_PER_AUCTION
+            // Find the lowest revealed bid to determine if new bid improves upon the weakest participant
             uint256 minIdx = 0;
             uint256 minBid = type(uint256).max;
             uint256 len = auction.revealedBidders.length;
@@ -181,6 +193,11 @@ contract HighestVoice {
                 }
                 unchecked { ++i; }
             }
+            // Require the new reveal to strictly improve the lowest revealed bid when capacity is full
+            // CHECK: Is this check correct? probably cause collateral loss.
+            require(bidAmount > minBid, "Reveal slots full");
+
+            // Evict the lowest revealed bid to keep array bounded at MAX_REVEALS_PER_AUCTION
             address evicted = auction.revealedBidders[minIdx];
             uint256 evictedAmt = auction.commits[evicted].collateral;
             if (evictedAmt > 0) {
@@ -221,12 +238,11 @@ contract HighestVoice {
      */
     function cancelBid() external onlyDuringCommit(currentAuctionId) lock {
         Auction storage auction = auctions[currentAuctionId];
-        BidCommit storage commit = auction.commits[msg.sender];
-
+        
         require(auction.hasCommitted[msg.sender], "No commit to cancel");
-        require(!commit.revealed, "Cannot cancel a revealed bid");
-
-        uint256 refundAmount = commit.collateral;
+        
+        uint256 refundAmount = auction.commits[msg.sender].collateral;
+        require(!auction.commits[msg.sender].revealed, "Cannot cancel a revealed bid");
 
         // Reset the commit and commitment status
         delete auction.commits[msg.sender];
@@ -323,14 +339,15 @@ contract HighestVoice {
             if (refundAmount > 0) {
                 refunds[currentAuctionId][bidder] += refundAmount;
                 emit RefundRecorded(bidder, currentAuctionId, refundAmount);
-                
-                // Clean up bidder's commit state to prevent stale data and inconsistencies
-                c.collateral = 0;
-                c.commitHash = bytes32(0);
-                c.revealed = false;
-                c.revealedBid = 0;
-                auction.hasCommitted[bidder] = false;
             }
+            
+            // Clean up bidder's commit state to prevent stale data and inconsistencies
+            // This must happen regardless of refund amount to maintain data integrity
+            c.collateral = 0;
+            c.commitHash = bytes32(0);
+            c.revealed = false;
+            c.revealedBid = 0;
+            auction.hasCommitted[bidder] = false;
             unchecked { ++i; }
         }
         
@@ -346,6 +363,12 @@ contract HighestVoice {
             auction.settled = true;
             lastSettledAuctionId = currentAuctionId;
             delete auction.revealedBidders;
+            
+            // Calculate and accumulate surplus (winner's payment = second-highest bid)
+            if (auction.winner != address(0) && auction.secondBid > 0) {
+                accumulatedSurplus += auction.secondBid;
+                emit SurplusCalculated(currentAuctionId, auction.secondBid);
+            }
             
             // Update minimum collateral for next auction with cap to prevent griefing
             if (auction.secondBid > 0) {
@@ -364,6 +387,8 @@ contract HighestVoice {
         auction.commitEnd = block.timestamp + COMMIT_DURATION;
         auction.revealEnd = auction.commitEnd + REVEAL_DURATION;
         auction.settled = false;
+        auction.winnerDetermined = false;
+        auction.settlementProcessed = 0;
     }
     
     /**
@@ -411,6 +436,83 @@ contract HighestVoice {
         (bool sent, ) = msg.sender.call{value: amount}("");
         require(sent, "Withdrawal failed");
     }
+    
+    /**
+     * @notice Simple one-click withdrawal - gets all available funds automatically
+     * @dev This is the most user-friendly option. Automatically finds and withdraws:
+     *      - All refunds from settled/canceled auctions
+     *      - All unrevealed collateral from ended auctions
+     *      Only scans recent auctions (last 7) for gas efficiency.
+     * @return totalWithdrawn Total amount withdrawn
+     */
+    function withdrawEverything() external lock returns (uint256 totalWithdrawn) {
+        uint256 nowTs = block.timestamp;
+        uint256 startId = currentAuctionId >= RECENT_AUCTIONS ? (currentAuctionId - RECENT_AUCTIONS + 1) : 1;
+        uint256 currentId = currentAuctionId; // Cache to save SLOAD
+
+        for (uint256 i = startId; i <= currentId;) {
+            Auction storage a = auctions[i];
+
+            // 1) Refunds from settled or canceled auctions
+            if (a.settled || a.hasCanceled[msg.sender]) {
+                uint256 r = refunds[i][msg.sender];
+                if (r > 0) {
+                    refunds[i][msg.sender] = 0;
+                    totalWithdrawn += r;
+                    emit RefundWithdrawn(msg.sender, i, r);
+                }
+            }
+
+            // 2) Unrevealed collateral after reveal has ended
+            BidCommit storage c = a.commits[msg.sender];
+            bytes32 cHash = c.commitHash;
+            if (cHash != bytes32(0) && !c.revealed && nowTs >= a.revealEnd) {
+                uint256 amt = c.collateral;
+                if (amt > 0) {
+                    // Clear state to prevent double-withdraw
+                    c.collateral = 0;
+                    c.commitHash = bytes32(0);
+                    a.hasCommitted[msg.sender] = false;
+                    totalWithdrawn += amt;
+                    emit RefundWithdrawn(msg.sender, i, amt);
+                }
+            }
+            unchecked { ++i; }
+        }
+
+        require(totalWithdrawn > 0, "No funds available");
+        (bool sent, ) = msg.sender.call{value: totalWithdrawn}("");
+        require(sent, "Withdrawal failed");
+    }
+    
+    /**
+     * @notice Distribute accumulated surplus to deployer and Protocol Guild
+     * @dev Can be called by anyone. Splits surplus 50/50 between DEPLOYER and PROTOCOL_GUILD.
+     *      Surplus is accumulated during auction settlements (winner's payment = second-highest bid).
+     */
+    function distributeSurplus() external lock {
+        uint256 surplus = accumulatedSurplus;
+        require(surplus > 0, "No surplus to distribute");
+        
+        // Reset accumulated surplus before transfers (checks-effects-interactions pattern)
+        accumulatedSurplus = 0;
+        
+        // Split 50/50 between deployer and Protocol Guild
+        uint256 halfAmount = surplus / 2;
+        uint256 deployerAmount = halfAmount;
+        uint256 publicGoodsAmount = surplus - halfAmount; // Handle odd amounts
+        
+        // Transfer to deployer
+        (bool sentDeployer, ) = DEPLOYER.call{value: deployerAmount}("");
+        require(sentDeployer, "Deployer transfer failed");
+        
+        // Transfer to Protocol Guild
+        (bool sentPublicGoods, ) = PROTOCOL_GUILD.call{value: publicGoodsAmount}("");
+        require(sentPublicGoods, "Protocol Guild transfer failed");
+        
+        emit SurplusDistributed(deployerAmount, publicGoodsAmount, block.timestamp);
+    }
+    
     // =============== VIEW FUNCTIONS ===============
     function getAuctionTimes(uint256 auctionId) external view returns (uint256 start, uint256 commitEnd, uint256 revealEnd) {
         Auction storage auction = auctions[auctionId];
@@ -450,26 +552,16 @@ contract HighestVoice {
     }
     
     /**
-     * @notice Check if user has any pending refunds across multiple auctions
-     * @dev WARNING: This function loops linearly over the auction range and may consume
-     *      significant gas if called on-chain with a large range. Intended for off-chain use.
-     * @param user The user address to check
-     * @param fromAuctionId Starting auction ID to check from
-     * @param toAuctionId Ending auction ID to check to
-     * @return totalRefunds Total refund amount across specified auction range
+     * @notice Get accumulated surplus and distribution breakdown
+     * @return total Total accumulated surplus available for distribution
+     * @return deployerShare Amount that will go to deployer (50%)
+     * @return publicGoodsShare Amount that will go to Protocol Guild (50%)
      */
-    function getTotalRefunds(address user, uint256 fromAuctionId, uint256 toAuctionId) 
-        external 
-        view 
-        returns (uint256 totalRefunds) 
-    {
-        require(fromAuctionId <= toAuctionId, "Invalid auction range");
-        require(toAuctionId <= currentAuctionId, "Future auction ID");
-        
-        for (uint256 i = fromAuctionId; i <= toAuctionId;) {
-            totalRefunds += refunds[i][user];
-            unchecked { ++i; }
-        }
+    function getSurplusInfo() external view returns (uint256 total, uint256 deployerShare, uint256 publicGoodsShare) {
+        total = accumulatedSurplus;
+        uint256 halfAmount = total / 2;
+        deployerShare = halfAmount;
+        publicGoodsShare = total - halfAmount; // Handle odd amounts
     }
     
     /**
@@ -490,7 +582,9 @@ contract HighestVoice {
     {
         uint256 nowTs = block.timestamp;
         uint256 startId = currentAuctionId >= RECENT_AUCTIONS ? (currentAuctionId - RECENT_AUCTIONS + 1) : 1;
-        for (uint256 i = startId; i <= currentAuctionId;) {
+        uint256 currentId = currentAuctionId; // Cache to save SLOAD
+        
+        for (uint256 i = startId; i <= currentId;) {
             Auction storage a = auctions[i];
 
             // Consider any recorded refunds
@@ -508,7 +602,8 @@ contract HighestVoice {
 
             // Consider commit state, avoiding double-counting when a refund is already recorded but not withdrawable
             BidCommit storage c = a.commits[msg.sender];
-            if (c.commitHash != bytes32(0)) {
+            bytes32 cHash = c.commitHash;
+            if (cHash != bytes32(0)) {
                 if (!c.revealed) {
                     if (nowTs >= a.revealEnd) {
                         // Unrevealed after reveal end is withdrawable via withdrawUnrevealedCollateral
@@ -532,82 +627,6 @@ contract HighestVoice {
         }
     }
 
-    /**
-     * @notice Withdraw all currently available funds for msg.sender across the last week of auctions.
-     * @dev Withdraws:
-     *      - Recorded refunds when the auction is settled or the user canceled their bid
-     *      - Unrevealed committed collateral when reveal has ended (via clearing commit state)
-     *      Does NOT withdraw refunds from unsettled auctions to preserve settlement ordering.
-     */
-    function withdrawAllAvailable() external lock {
-        uint256 totalAmount = 0;
-        uint256 nowTs = block.timestamp;
-        uint256 startId = currentAuctionId >= RECENT_AUCTIONS ? (currentAuctionId - RECENT_AUCTIONS + 1) : 1;
-
-        for (uint256 i = startId; i <= currentAuctionId;) {
-            Auction storage a = auctions[i];
-
-            // 1) Refunds from settled or canceled auctions
-            if (a.settled || a.hasCanceled[msg.sender]) {
-                uint256 r = refunds[i][msg.sender];
-                if (r > 0) {
-                    refunds[i][msg.sender] = 0;
-                    totalAmount += r;
-                    emit RefundWithdrawn(msg.sender, i, r);
-                }
-            }
-
-            // 2) Unrevealed collateral after reveal has ended
-            BidCommit storage c = a.commits[msg.sender];
-            if (c.commitHash != bytes32(0) && !c.revealed && nowTs >= a.revealEnd) {
-                uint256 amt = c.collateral;
-                if (amt > 0) {
-                    // Clear state to prevent double-withdraw
-                    c.collateral = 0;
-                    c.commitHash = bytes32(0);
-                    a.hasCommitted[msg.sender] = false;
-                    totalAmount += amt;
-                    emit RefundWithdrawn(msg.sender, i, amt);
-                }
-            }
-            unchecked { ++i; }
-        }
-
-        require(totalAmount > 0, "No funds available");
-        (bool sent, ) = msg.sender.call{value: totalAmount}("");
-        require(sent, "Withdrawal failed");
-    }
-    /**
-     * @notice Withdraw refunds from multiple auctions in a single transaction
-     * @param auctionIds Array of auction IDs to withdraw from
-     */
-    function withdrawMultipleRefunds(uint256[] calldata auctionIds) external lock {
-        require(auctionIds.length > 0, "No auctions specified");
-        require(auctionIds.length <= 20, "Too many auctions"); // Prevent gas limit issues
-        
-        uint256 totalAmount = 0;
-        
-        // Calculate total and clear refunds
-        for (uint256 i = 0; i < auctionIds.length;) {
-            uint256 auctionId = auctionIds[i];
-            require(auctionId <= currentAuctionId, "Invalid auction");
-            require(auctions[auctionId].settled || auctions[auctionId].hasCanceled[msg.sender], "Auction not settled");
-            uint256 amount = refunds[auctionId][msg.sender];
-            
-            if (amount > 0) {
-                refunds[auctionId][msg.sender] = 0;
-                totalAmount += amount;
-                emit RefundWithdrawn(msg.sender, auctionId, amount);
-            }
-            unchecked { ++i; }
-        }
-        
-        require(totalAmount > 0, "No refunds available");
-        
-        (bool sent, ) = msg.sender.call{value: totalAmount}("");
-        require(sent, "Withdrawal failed");
-    }
-    
     // =============== UTILITY ===============
     receive() external payable { revert("Use commitBid"); }
 }
