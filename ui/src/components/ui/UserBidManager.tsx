@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { formatEther, parseEther, keccak256, encodePacked, toHex } from 'viem';
-import { useUserBids, useCanRaiseBid } from '@/hooks/useUserBids';
-import { useRevealBid, useRaiseCommit, useAuctionInfo, useMyParticipation, useCancelBid } from '@/hooks/useHighestVoice';
+import { formatEther, parseEther } from 'viem';
+import { useUserBids } from '@/hooks/useUserBids';
+import { useRevealBid, useAuctionInfo, useMyParticipation, useCancelBid } from '@/hooks/useHighestVoice';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -15,7 +15,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'react-hot-toast';
 import { getCommitPreimage, saveCommitPreimage } from '@/utils/commitPreimage';
-import { upsertActiveBid } from '@/utils/bidStorage';
 
 interface UserBidManagerProps {
   className?: string;
@@ -24,86 +23,14 @@ interface UserBidManagerProps {
 export default function UserBidManager({ className = '' }: UserBidManagerProps) {
   const { address, isConnected } = useAccount();
   const { userBids, isLoading, refetchAll } = useUserBids();
-  const { canRaise, currentAmount, commitHash: currentCommitHash } = useCanRaiseBid();
   const { revealBid, isPending: isRevealing } = useRevealBid();
-  const { raiseCommit, isConfirming: isRaising } = useRaiseCommit();
   const { cancelBid, isPending: isCancelling } = useCancelBid();
   const { auctionId } = useAuctionInfo();
   const { hasParticipated, collateral, isLoading: isLoadingParticipation } = useMyParticipation();
 
-  const [raiseAmount, setRaiseAmount] = useState('');
-  const [showRaiseModal, setShowRaiseModal] = useState(false);
   const [showRevealModal, setShowRevealModal] = useState(false);
   const [selectedBid, setSelectedBid] = useState<any>(null);
 
-  const handleRaiseBid = async () => {
-    if (!raiseAmount || !currentCommitHash) return;
-
-    try {
-      if (!address || !auctionId) {
-        toast.error('Auction or wallet not ready');
-        return;
-      }
-
-      const newAmountWei = parseEther(raiseAmount);
-      const currentWei = currentAmount;
-      if (newAmountWei <= currentWei) {
-        toast.error('New bid must be higher than current bid');
-        return;
-      }
-
-      // Load existing preimage to preserve content and re-commit with new amount
-      const preimage = getCommitPreimage(address, auctionId);
-      if (!preimage) {
-        toast.error('Missing preimage for your commit. Please open Commit tab and regenerate your commit with content.');
-        return;
-      }
-
-      const newSalt = toHex(crypto.getRandomValues(new Uint8Array(32)));
-      const newCommitHash = keccak256(
-        encodePacked(
-          ['uint256', 'string', 'string', 'string', 'bytes32'],
-          [newAmountWei, preimage.text, preimage.imageCid, preimage.voiceCid, newSalt]
-        )
-      ) as `0x${string}`;
-
-      const delta = newAmountWei - currentWei;
-      // Send only the additional collateral
-      await raiseCommit(newCommitHash, delta);
-
-      // Persist updated preimage
-      saveCommitPreimage(address, {
-        auctionId: auctionId.toString(),
-        amount: raiseAmount,
-        text: preimage.text,
-        imageCid: preimage.imageCid,
-        voiceCid: preimage.voiceCid,
-        salt: newSalt,
-        commitHash: newCommitHash,
-        updatedAt: Date.now(),
-      });
-      // Update active bid snapshot for immediate UI
-      upsertActiveBid(address, {
-        auctionId,
-        amount: newAmountWei,
-        text: preimage.text,
-        imageCid: preimage.imageCid,
-        voiceCid: preimage.voiceCid,
-        timestamp: BigInt(Math.floor(Date.now() / 1000)),
-        isRevealed: false,
-        isWinner: false,
-        commitHash: newCommitHash,
-      });
-
-      toast.success('Bid raised successfully!');
-      setShowRaiseModal(false);
-      setRaiseAmount('');
-      refetchAll();
-    } catch (error) {
-      console.error('Error raising bid:', error);
-      toast.error('Failed to raise bid');
-    }
-  };
 
   const handleReveal = async () => {
     if (!selectedBid || !address || !auctionId) {
@@ -171,11 +98,6 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             <span>My Bids</span>
-            {canRaise && (
-              <span className="px-2 py-1 text-xs font-medium bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 rounded-full">
-                Can Raise Bid
-              </span>
-            )}
           </CardTitle>
           {/* Your Committed Bid Section */}
           {hasParticipated && !isLoadingParticipation && (
@@ -315,15 +237,6 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
                     )}
 
                     <div className="flex gap-2">
-                      {!bid.isRevealed && canRaise && (
-                        <Button
-                          size="sm"
-                          onClick={() => setShowRaiseModal(true)}
-                          disabled={isRaising}
-                        >
-                          {isRaising ? 'Processing...' : 'Raise Bid'}
-                        </Button>
-                      )}
                       {!bid.isRevealed && (
                         <Button
                           size="sm"
@@ -437,62 +350,6 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
         </CardContent>
       </Card>
 
-      {/* Raise Bid Modal */}
-      <AnimatePresence>
-        {showRaiseModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-            onClick={() => setShowRaiseModal(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-background border rounded-lg p-6 max-w-md w-full mx-4"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 className="text-lg font-semibold mb-4">Raise Your Bid</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Current Bid</label>
-                  <p className="text-lg font-bold">{formatEther(currentAmount)} ETH</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium">New Bid Amount</label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={raiseAmount}
-                    onChange={(e) => setRaiseAmount(e.target.value)}
-                    placeholder="Enter new bid amount"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleRaiseBid}
-                    disabled={isRaising || !raiseAmount}
-                    className="flex-1"
-                  >
-                    {isRaising ? 'Processing...' : 'Raise Bid'}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowRaiseModal(false)}
-                    className="flex-1"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Reveal Bid Modal */}
       <AnimatePresence>
         {showRevealModal && selectedBid && (
@@ -500,38 +357,116 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-            onClick={() => setShowRevealModal(false)}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50"
+            onClick={() => !isRevealing && setShowRevealModal(false)}
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-background border rounded-lg p-6 max-w-md w-full mx-4"
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-gradient-to-br from-purple-900/40 via-pink-900/40 to-orange-900/40 backdrop-blur-xl border border-purple-500/30 rounded-2xl p-6 max-w-lg w-full mx-4 shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-lg font-semibold mb-4">Reveal Your Bid</h3>
-              <div className="space-y-4">
-                <p>You are about to reveal your bid for Auction #{selectedBid.auctionId.toString()}.</p>
-                <div className="p-3 bg-muted/50 rounded-lg space-y-2">
-                  <div><span className="font-medium">Amount:</span> {formatEther(selectedBid.amount)} ETH</div>
-                  {selectedBid.text && <div><span className="font-medium">Text:</span> {selectedBid.text}</div>}
+              {/* Header */}
+              <div className="text-center mb-6">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/40 rounded-full mb-4">
+                  <span className="text-4xl">🎭</span>
                 </div>
-                <p className="text-sm text-muted-foreground">This action is irreversible. Your bid details will become public.</p>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleReveal}
-                    disabled={isRevealing}
-                    className="flex-1"
-                  >
-                    {isRevealing ? 'Revealing...' : 'Confirm Reveal'}
-                  </Button>
+                <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-orange-400">
+                  Reveal Your Bid
+                </h3>
+                <p className="text-white/60 text-sm mt-2">
+                  Auction #{selectedBid.auctionId.toString()}
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {/* Bid Details Card */}
+                <div className="bg-black/40 backdrop-blur border border-cyan-500/30 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-cyan-400/80">💰 YOUR BID</span>
+                    <span className="text-2xl font-bold text-cyan-300">{formatEther(selectedBid.amount)} ETH</span>
+                  </div>
+                  
+                  {selectedBid.text && (
+                    <div className="pt-3 border-t border-white/10">
+                      <p className="text-xs text-purple-400/80 mb-1">📝 MESSAGE</p>
+                      <p className="text-sm text-white/90 leading-relaxed">{selectedBid.text}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Payment Info */}
+                {address && auctionId && (
+                  <div className="p-4 bg-gradient-to-r from-yellow-500/10 to-amber-500/10 border border-yellow-500/30 rounded-xl">
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/70">Already Paid:</span>
+                        <span className="font-bold text-green-400">{formatEther(collateral)} ETH</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/70">Pay on Reveal:</span>
+                        <span className="font-bold text-yellow-400">
+                          {(() => {
+                            const preimage = getCommitPreimage(address, auctionId);
+                            if (preimage && preimage.amount) {
+                              return Math.max(0, parseFloat(preimage.amount) - parseFloat(formatEther(collateral))).toFixed(6);
+                            }
+                            return '0.000000';
+                          })()} ETH
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Warning */}
+                <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
+                  <div className="flex items-start gap-3">
+                    <span className="text-2xl">⚠️</span>
+                    <div className="flex-1">
+                      <p className="text-sm text-red-300 leading-relaxed">
+                        <strong>This action is irreversible!</strong> Your bid details will become public and visible to all participants.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Info */}
+                <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+                  <div className="flex items-start gap-2">
+                    <span className="text-lg">ℹ️</span>
+                    <p className="text-xs text-blue-300 leading-relaxed">
+                      Your committed data has been auto-filled. This reveal will use the exact details from your commit.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 pt-2">
                   <Button
                     variant="outline"
                     onClick={() => setShowRevealModal(false)}
-                    className="flex-1"
+                    disabled={isRevealing}
+                    className="flex-1 border-gray-600 hover:border-gray-500 text-gray-300"
                   >
                     Cancel
+                  </Button>
+                  <Button
+                    onClick={handleReveal}
+                    disabled={isRevealing}
+                    className="flex-1 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-600 hover:from-purple-700 hover:via-pink-700 hover:to-orange-700 text-white font-bold"
+                  >
+                    {isRevealing ? (
+                      <>
+                        <span className="animate-spin mr-2">⏳</span>
+                        Revealing...
+                      </>
+                    ) : (
+                      <>
+                        🎭 Confirm Reveal
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
@@ -542,3 +477,4 @@ export default function UserBidManager({ className = '' }: UserBidManagerProps) 
     </div>
   );
 }
+

@@ -4,8 +4,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useAuctionInfo, useCommitBid, useRevealBid, useMyParticipation, useRaiseCommit, useMinimumCollateral } from '@/hooks/useHighestVoice';
-import { useUserBids, useCanRaiseBid } from '@/hooks/useUserBids';
+import { useAuctionInfo, useCommitBid, useRevealBid, useMyParticipation, useMinimumCollateral } from '@/hooks/useHighestVoice';
+import { useUserBids } from '@/hooks/useUserBids';
 import { keccak256, parseEther, encodePacked, toHex, Hex, formatEther } from 'viem';
 import { toast } from 'react-hot-toast';
 import { getCommitPreimage, saveCommitPreimage } from '@/utils/commitPreimage';
@@ -28,9 +28,7 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
   const { commitBid, isPending: isCommitting } = useCommitBid();
   const { revealBid, isPending: isRevealing } = useRevealBid();
   const { userBids, isLoading: isLoadingBids } = useUserBids();
-  const { canRaise, currentAmount } = useCanRaiseBid();
   const { hasParticipated, collateral, revealed, isLoading: isLoadingParticipation } = useMyParticipation();
-  const { raiseCommit, isConfirming: isRaising } = useRaiseCommit();
   const { minimumCollateral } = useMinimumCollateral();
 
   // Form state
@@ -141,7 +139,7 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
     if (!confirmModalData || !address || !auctionId) return;
     
     const { remainingAmount, bidAmount: modalBidAmount, collateralAmount: modalCollateralAmount } = confirmModalData;
-    // Persist preimage for raise and reveal flows
+    // Persist preimage for reveal flow
     try {
       saveCommitPreimage(address, {
         auctionId: auctionId.toString(),
@@ -171,33 +169,16 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
     } catch (e) {
       console.warn('Failed to save commit preimage', e);
     }
-    // If user already has a commit, automatically treat this as a raise
+
+    // Check if user already has a committed bid (cannot commit twice)
     if (hasParticipated && !revealed) {
-      const newAmountWei = parseEther(modalBidAmount);
-      if (newAmountWei <= collateral) {
-        toast.error(`New bid must be higher than your current collateral of ${formatEther(collateral)} ETH`);
-        setShowConfirmModal(false);
-        setConfirmModalData(null);
-        return;
-      }
-      const delta = newAmountWei - collateral;
-      try {
-        raiseCommit(commitHash as Hex, delta);
-      } catch (err) {
-        console.error('raiseCommit failed', err);
-        const msg = (err as any)?.message || '';
-        if (msg.toLowerCase().includes('circuit breaker')) {
-          toast.error('MetaMask circuit breaker is open. Switch networks or wait ~30s, then try again.');
-        } else {
-          toast.error('Failed to raise bid');
-        }
-      }
+      toast.error('You have already committed a bid for this auction. You cannot change it.');
       setShowConfirmModal(false);
       setConfirmModalData(null);
       return;
     }
 
-    // Otherwise, submit initial commit
+    // Submit initial commit
     try {
       commitBid(commitHash as Hex, {
         value: parseEther(modalCollateralAmount),
@@ -393,23 +374,138 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
                 {commitHash && (
                   <Button
                     onClick={handleCommit}
-                    disabled={isCommitting || isRaising}
+                    disabled={isCommitting}
                     className="w-full bg-gradient-to-r from-cyan-600 to-green-600 hover:from-cyan-700 hover:to-green-700"
                   >
-                    {isCommitting || isRaising
-                      ? (hasParticipated && !revealed ? 'Raising...' : 'Committing...')
-                      : (hasParticipated && !revealed ? 'Raise Bid' : 'Commit Bid')}
+                    {isCommitting ? 'Committing...' : 'Commit Bid'}
                   </Button>
                 )}
               </TabsContent>
 
-              <TabsContent value="reveal" className="space-y-3 pt-4">
-                <Input type="number" placeholder="Bid Amount (ETH)" value={bidAmount} onChange={(e) => setBidAmount(e.target.value)} />
-                <Input placeholder="Text (optional)" value={text} onChange={(e) => setText(e.target.value)} />
-                <Input placeholder="Image CID (optional)" value={imageCid} onChange={(e) => setImageCid(e.target.value)} />
-                <Input placeholder="Voice CID (optional)" value={voiceCid} onChange={(e) => setVoiceCid(e.target.value)} />
-                <Input placeholder="Your Salt" value={salt} onChange={(e) => setSalt(e.target.value as Hex)} />
-                <Button onClick={handleReveal} disabled={isRevealing} className="w-full">{isRevealing ? 'Revealing...' : 'Reveal Bid'}</Button>
+              <TabsContent value="reveal" className="space-y-4 pt-4">
+                {/* Info Banner */}
+                <div className="bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-orange-500/10 border border-purple-500/30 rounded-xl p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="text-2xl">🎭</span>
+                    <div className="flex-1">
+                      <h4 className="text-sm font-semibold text-purple-300 mb-1">Reveal Phase</h4>
+                      <p className="text-xs text-white/70 leading-relaxed">
+                        Your data is auto-filled from your commit. Verify everything is correct before revealing.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bid Amount */}
+                <div>
+                  <label className="text-sm font-medium mb-2 block text-cyan-300">💰 Bid Amount (ETH)</label>
+                  <Input 
+                    type="number" 
+                    step="0.01"
+                    placeholder="e.g., 0.05" 
+                    value={bidAmount} 
+                    onChange={(e) => setBidAmount(e.target.value)}
+                    className="bg-black/40 border-cyan-500/30 text-cyan-300 font-mono text-lg"
+                  />
+                </div>
+
+                {/* Payment Info */}
+                {bidAmount && collateral > 0n && (
+                  <div className="p-4 bg-gradient-to-r from-yellow-500/10 to-amber-500/10 border border-yellow-500/30 rounded-xl">
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/70">Already Paid (Collateral):</span>
+                        <span className="font-bold text-green-400">{formatEther(collateral)} ETH</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/70">Remaining to Pay Now:</span>
+                        <span className="font-bold text-yellow-400">
+                          {Math.max(0, parseFloat(bidAmount) - parseFloat(formatEther(collateral))).toFixed(6)} ETH
+                        </span>
+                      </div>
+                      <div className="pt-2 border-t border-yellow-500/20">
+                        <div className="flex justify-between items-center">
+                          <span className="text-white/90 font-semibold">Total Bid:</span>
+                          <span className="font-bold text-xl text-cyan-300">{bidAmount} ETH</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Text Content */}
+                <div>
+                  <label className="text-sm font-medium mb-2 block text-purple-300">📝 Message</label>
+                  <Input 
+                    placeholder="Your voice message..." 
+                    value={text} 
+                    onChange={(e) => setText(e.target.value)}
+                    className="bg-black/40 border-purple-500/30 text-white"
+                  />
+                  <p className="text-xs text-white/50 mt-1">{text.length}/500 characters</p>
+                </div>
+
+                {/* CIDs */}
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <label className="text-sm font-medium mb-2 block text-pink-300">🖼️ Image CID</label>
+                    <Input 
+                      placeholder="Qm..." 
+                      value={imageCid} 
+                      onChange={(e) => setImageCid(e.target.value)}
+                      className="bg-black/40 border-pink-500/30 text-white font-mono text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block text-orange-300">🎵 Voice CID</label>
+                    <Input 
+                      placeholder="Qm..." 
+                      value={voiceCid} 
+                      onChange={(e) => setVoiceCid(e.target.value)}
+                      className="bg-black/40 border-orange-500/30 text-white font-mono text-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* Salt */}
+                <div>
+                  <label className="text-sm font-medium mb-2 block text-green-300">🔐 Your Secret Salt</label>
+                  <Input 
+                    placeholder="0x..." 
+                    value={salt} 
+                    onChange={(e) => setSalt(e.target.value as Hex)}
+                    className="bg-black/40 border-green-500/30 text-green-300 font-mono text-xs"
+                  />
+                  <p className="text-xs text-white/50 mt-1">This was generated when you committed</p>
+                </div>
+
+                {/* Warning */}
+                <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
+                  <div className="flex items-start gap-2">
+                    <span className="text-xl">⚠️</span>
+                    <p className="text-xs text-red-300 leading-relaxed">
+                      <strong>Warning:</strong> Revealing makes your bid public and irreversible. Ensure all details match your commit exactly.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Reveal Button */}
+                <Button 
+                  onClick={handleReveal} 
+                  disabled={isRevealing || !bidAmount || !salt}
+                  className="w-full bg-gradient-to-r from-purple-600 via-pink-600 to-orange-600 hover:from-purple-700 hover:via-pink-700 hover:to-orange-700 text-white font-bold py-3 text-lg"
+                >
+                  {isRevealing ? (
+                    <>
+                      <span className="animate-spin mr-2">⏳</span>
+                      Revealing...
+                    </>
+                  ) : (
+                    <>
+                      🎭 Reveal My Bid
+                    </>
+                  )}
+                </Button>
               </TabsContent>
             </Tabs>
           </CardContent>
@@ -429,7 +525,7 @@ export default function HolographicBidPod({ className = '' }: HolographicBidPodP
         message={confirmModalData ? `Remaining to pay at reveal (bid - collateral): ${confirmModalData.remainingAmount.toFixed(6)} ETH\n\nPlease confirm this amount and ensure you have sufficient funds for the reveal phase.` : ''}
         confirmText="Commit Bid"
         cancelText="Cancel"
-        isLoading={isCommitting || isRaising}
+        isLoading={isCommitting}
       />
     </motion.div>
   );

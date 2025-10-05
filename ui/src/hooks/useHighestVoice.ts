@@ -225,19 +225,3 @@ export function useCancelBid() {
   return { cancelBid, isPending, isSuccess, isError, error };
 }
 
-export function useRaiseCommit() {
-  const { writeContract, data: hash, ...rest } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
-
-  const raiseCommit = (newCommitHash: `0x${string}`, valueWei: bigint) => {
-    writeContract({
-      address: CONTRACT_ADDRESS,
-      abi: HIGHEST_VOICE_ABI,
-      functionName: 'raiseCommit',
-      args: [newCommitHash],
-      value: valueWei,
-    });
-  };
-
-  return { raiseCommit, hash, isConfirming, isConfirmed, ...rest };
-}

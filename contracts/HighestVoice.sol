@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/utils/Base64.sol";
+
 /**
  * @title HighestVoice
  * @notice Permissionless, second-price sealed-bid auction for projecting the loudest voice on-chain.
  *         Each auction round lasts 24h: 12h commit, 12h reveal. Winner's post is projected for 24h.
+ *         Features: NFT winner certificates, tipping system, leaderboard tracking.
  *         No owner/admin, ETH only, fully decentralized.
  */
-contract HighestVoice {
+contract HighestVoice is ERC721 {
     // =============== EVENTS ===============
     event NewCommit(address indexed bidder, uint256 auctionId);
     event NewReveal(address indexed bidder, uint256 auctionId, uint256 bid);
@@ -18,6 +23,9 @@ contract HighestVoice {
     event SettlementProgress(uint256 indexed auctionId, uint256 processed, uint256 total, bool complete);
     event SurplusCalculated(uint256 indexed auctionId, uint256 amount);
     event SurplusDistributed(uint256 deployerAmount, uint256 publicGoodsAmount, uint256 timestamp);
+    event WinnerNFTMinted(address indexed winner, uint256 indexed tokenId, uint256 indexed auctionId);
+    event PostTipped(uint256 indexed auctionId, address indexed tipper, uint256 amount);
+    event StatsUpdated(address indexed user, uint256 totalWins, uint256 totalParticipations);
 
     // =============== STRUCTS ===============
     struct Post {
@@ -25,6 +33,25 @@ contract HighestVoice {
         string text; // ≤500 characters (enforced on-chain)
         string imageCid; // ≤500kB CID string length (actual IPFS file size enforced off-chain)
         string voiceCid; // ≤1MB CID string length (actual IPFS file size enforced off-chain)
+        uint256 tipsReceived; // Total tips received for this post
+    }
+    
+    struct WinnerNFT {
+        uint256 auctionId;
+        uint256 winningBid;
+        string text;
+        uint256 timestamp;
+        uint256 tipsReceived;
+    }
+    
+    struct UserStats {
+        uint256 totalWins;
+        uint256 totalSpent;
+        uint256 highestBid;
+        uint256 totalParticipations;
+        uint256 totalTipsReceived;
+        uint256 currentStreak;
+        uint256 bestStreak;
     }
     struct BidCommit {
         bytes32 commitHash;
@@ -79,6 +106,19 @@ contract HighestVoice {
     
     // Accumulated surplus from auction winners (second-highest bids)
     uint256 public accumulatedSurplus;
+    
+    // =============== NFT & GAMIFICATION ===============
+    uint256 public nextTokenId;
+    mapping(uint256 => WinnerNFT) public winnerNFTs; // tokenId => NFT metadata
+    mapping(uint256 => uint256) public auctionToNFT; // auctionId => tokenId
+    
+    // =============== TIPPING ===============
+    mapping(uint256 => uint256) public auctionTips; // auctionId => total tips
+    
+    // =============== LEADERBOARD & STATS ===============
+    mapping(address => UserStats) public userStats;
+    address[] public topWinners; // Leaderboard (top 10)
+    uint256 public constant LEADERBOARD_SIZE = 10;
 
     // =============== REENTRANCY ===============
     uint256 private unlocked = 1;
@@ -110,11 +150,12 @@ contract HighestVoice {
     /**
      * @param protocolGuild Address for Protocol Guild (public goods funding)
      */
-    constructor(address protocolGuild) {
+    constructor(address protocolGuild) ERC721("HighestVoice Winner", "HVWIN") {
         require(protocolGuild != address(0), "Invalid Protocol Guild address");
         DEPLOYER = msg.sender;
         PROTOCOL_GUILD = protocolGuild;
         minimumCollateral = INITIAL_MINIMUM_COLLATERAL;
+        nextTokenId = 1; // Start NFT IDs from 1
         _startNewAuction();
     }
 
@@ -225,7 +266,7 @@ contract HighestVoice {
             auction.secondBid = auction.winningBid;
             auction.winningBid = bidAmount;
             auction.winner = msg.sender;
-            auction.winnerPost = Post({owner: msg.sender, text: text, imageCid: imageCid, voiceCid: voiceCid});
+            auction.winnerPost = Post({owner: msg.sender, text: text, imageCid: imageCid, voiceCid: voiceCid, tipsReceived: 0});
         } else if (bidAmount > auction.secondBid) {
             auction.secondBid = bidAmount;
         }
@@ -312,6 +353,9 @@ contract HighestVoice {
             lastWinnerPost = auction.winnerPost;
             lastWinnerTime = block.timestamp;
             
+            // Mint NFT for winner (stats updated in refund processing)
+            _mintWinnerNFT(auction.winner, currentAuctionId, auction.winningBid, auction.winnerPost.text);
+            
             emit NewWinner(auction.winner, currentAuctionId, auction.winningBid, auction.winnerPost.text, auction.winnerPost.imageCid, auction.winnerPost.voiceCid);
         }
         
@@ -327,6 +371,11 @@ contract HighestVoice {
             address bidder = auction.revealedBidders[i];
             BidCommit storage c = auction.commits[bidder];
             uint256 refundAmount = 0;
+            
+            // Update stats for all participants (only once per bidder)
+            if (i == startIdx || bidder != auction.revealedBidders[i-1]) {
+                _updateUserStats(bidder, c.revealedBid, bidder == auction.winner);
+            }
             
             if (bidder == auction.winner) {
                 // Winner always pays second-highest bid (true second-price auction)
@@ -513,6 +562,265 @@ contract HighestVoice {
         emit SurplusDistributed(deployerAmount, publicGoodsAmount, block.timestamp);
     }
     
+    // =============== TIPPING SYSTEM ===============
+    /**
+     * @notice Tip a winning post from any auction
+     * @param auctionId The auction ID to tip
+     * @dev 90% goes to winner, 10% goes to treasury
+     */
+    function tipWinner(uint256 auctionId) external payable lock {
+        require(msg.value > 0, "Must send tip");
+        Auction storage auction = auctions[auctionId];
+        require(auction.settled, "Auction not settled");
+        require(auction.winner != address(0), "No winner");
+        
+        // Split tip: 90% to winner, 10% to treasury
+        uint256 winnerTip = (msg.value * 90) / 100;
+        uint256 treasuryTip = msg.value - winnerTip;
+        
+        // Update tip tracking
+        auction.winnerPost.tipsReceived += msg.value;
+        auctionTips[auctionId] += msg.value;
+        userStats[auction.winner].totalTipsReceived += winnerTip;
+        
+        // Update NFT if exists
+        uint256 tokenId = auctionToNFT[auctionId];
+        if (tokenId > 0) {
+            winnerNFTs[tokenId].tipsReceived += msg.value;
+        }
+        
+        // Send funds
+        (bool sentWinner, ) = auction.winner.call{value: winnerTip}("");
+        require(sentWinner, "Winner tip transfer failed");
+        
+        accumulatedSurplus += treasuryTip;
+        
+        emit PostTipped(auctionId, msg.sender, msg.value);
+    }
+    
+    // =============== NFT & GAMIFICATION ===============
+    /**
+     * @notice Internal function to mint NFT for winner
+     */
+    function _mintWinnerNFT(address winner, uint256 auctionId, uint256 winningBid, string memory text) internal {
+        uint256 tokenId = nextTokenId++;
+        _safeMint(winner, tokenId);
+        
+        winnerNFTs[tokenId] = WinnerNFT({
+            auctionId: auctionId,
+            winningBid: winningBid,
+            text: text,
+            timestamp: block.timestamp,
+            tipsReceived: 0
+        });
+        
+        auctionToNFT[auctionId] = tokenId;
+        
+        emit WinnerNFTMinted(winner, tokenId, auctionId);
+    }
+    
+    /**
+     * @notice Generate SVG image for NFT
+     */
+    function _generateSVG(uint256 tokenId, WinnerNFT memory nft) internal pure returns (string memory) {
+        // Convert wei to ETH string (with 4 decimals)
+        uint256 bidInEth = nft.winningBid / 1e14; // Convert to 10000ths of ETH
+        string memory bidStr = string(abi.encodePacked(
+            Strings.toString(bidInEth / 10000),
+            '.',
+            _padZeros(bidInEth % 10000, 4)
+        ));
+        
+        uint256 tipsInEth = nft.tipsReceived / 1e14;
+        string memory tipsStr = string(abi.encodePacked(
+            Strings.toString(tipsInEth / 10000),
+            '.',
+            _padZeros(tipsInEth % 10000, 4)
+        ));
+        
+        return string(abi.encodePacked(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500" viewBox="0 0 500 500">',
+            '<defs>',
+            '<linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">',
+            '<stop offset="0%" style="stop-color:#667eea;stop-opacity:1"/>',
+            '<stop offset="100%" style="stop-color:#764ba2;stop-opacity:1"/>',
+            '</linearGradient>',
+            '<linearGradient id="trophy" x1="0%" y1="0%" x2="0%" y2="100%">',
+            '<stop offset="0%" style="stop-color:#ffd700;stop-opacity:1"/>',
+            '<stop offset="100%" style="stop-color:#ffaa00;stop-opacity:1"/>',
+            '</linearGradient>',
+            '</defs>',
+            '<rect width="500" height="500" fill="url(#bg)"/>',
+            // Border
+            '<rect x="20" y="20" width="460" height="460" fill="none" stroke="#fff" stroke-width="3" opacity="0.3" rx="10"/>',
+            // Trophy icon
+            '<circle cx="250" cy="120" r="35" fill="url(#trophy)"/>',
+            '<path d="M 230 155 L 270 155 L 265 180 L 235 180 Z" fill="url(#trophy)"/>',
+            '<rect x="240" y="180" width="20" height="15" fill="url(#trophy)"/>',
+            '<rect x="225" y="195" width="50" height="8" fill="url(#trophy)" rx="4"/>',
+            // Title
+            '<text x="250" y="240" font-family="Arial,sans-serif" font-size="32" font-weight="bold" fill="#ffffff" text-anchor="middle">',
+            'WINNER #', Strings.toString(tokenId),
+            '</text>',
+            // Auction info
+            '<text x="250" y="280" font-family="Arial,sans-serif" font-size="18" fill="#e0e0e0" text-anchor="middle">',
+            'Auction #', Strings.toString(nft.auctionId),
+            '</text>',
+            // Stats box
+            '<rect x="80" y="310" width="340" height="120" fill="#ffffff" opacity="0.1" rx="10"/>',
+            // Winning Bid
+            '<text x="250" y="345" font-family="Arial,sans-serif" font-size="14" fill="#ffffff" text-anchor="middle" opacity="0.8">',
+            'WINNING BID',
+            '</text>',
+            '<text x="250" y="375" font-family="Arial,sans-serif" font-size="24" font-weight="bold" fill="#ffd700" text-anchor="middle">',
+            bidStr, ' ETH',
+            '</text>',
+            // Tips
+            '<text x="250" y="405" font-family="Arial,sans-serif" font-size="14" fill="#ffffff" text-anchor="middle" opacity="0.8">',
+            'TIPS RECEIVED',
+            '</text>',
+            '<text x="250" y="425" font-family="Arial,sans-serif" font-size="18" font-weight="bold" fill="#90ee90" text-anchor="middle">',
+            tipsStr, ' ETH',
+            '</text>',
+            // Footer
+            '<text x="250" y="470" font-family="Arial,sans-serif" font-size="12" fill="#ffffff" text-anchor="middle" opacity="0.6">',
+            'HighestVoice Protocol',
+            '</text>',
+            '</svg>'
+        ));
+    }
+    
+    /**
+     * @notice Helper to pad zeros for decimal display
+     */
+    function _padZeros(uint256 num, uint256 decimals) internal pure returns (string memory) {
+        string memory numStr = Strings.toString(num);
+        bytes memory numBytes = bytes(numStr);
+        
+        if (numBytes.length >= decimals) {
+            return numStr;
+        }
+        
+        bytes memory result = new bytes(decimals);
+        uint256 zerosNeeded = decimals - numBytes.length;
+        
+        for (uint256 i = 0; i < zerosNeeded; i++) {
+            result[i] = '0';
+        }
+        for (uint256 i = 0; i < numBytes.length; i++) {
+            result[zerosNeeded + i] = numBytes[i];
+        }
+        
+        return string(result);
+    }
+    
+    /**
+     * @notice Get NFT metadata for a token with on-chain SVG image
+     */
+    function tokenURI(uint256 tokenId) public view override returns (string memory) {
+        require(tokenId > 0 && tokenId < nextTokenId, "Token doesn't exist");
+        
+        WinnerNFT memory nft = winnerNFTs[tokenId];
+        
+        // Generate SVG image
+        string memory svg = _generateSVG(tokenId, nft);
+        string memory imageURI = string(abi.encodePacked(
+            'data:image/svg+xml;base64,',
+            Base64.encode(bytes(svg))
+        ));
+        
+        // Create JSON metadata with image
+        string memory json = string(abi.encodePacked(
+            '{"name":"HighestVoice Winner #',
+            Strings.toString(tokenId),
+            '","description":"Winner of auction #',
+            Strings.toString(nft.auctionId),
+            ' on the HighestVoice protocol. This NFT certifies victory in a second-price sealed-bid auction where voices compete for on-chain projection.",',
+            '"image":"', imageURI, '",',
+            '"attributes":[',
+            '{"trait_type":"Auction","value":"', Strings.toString(nft.auctionId), '"},',
+            '{"trait_type":"Token ID","value":"', Strings.toString(tokenId), '"},',
+            '{"trait_type":"Winning Bid","display_type":"number","value":"', Strings.toString(nft.winningBid), '"},',
+            '{"trait_type":"Tips Received","display_type":"number","value":"', Strings.toString(nft.tipsReceived), '"},',
+            '{"trait_type":"Timestamp","display_type":"date","value":', Strings.toString(nft.timestamp), '}',
+            ']}'
+        ));
+        
+        return string(abi.encodePacked(
+            'data:application/json;base64,',
+            Base64.encode(bytes(json))
+        ));
+    }
+    
+    // =============== STATS & LEADERBOARD ===============
+    /**
+     * @notice Internal function to update user statistics
+     */
+    function _updateUserStats(address user, uint256 bidAmount, bool isWinner) internal {
+        UserStats storage stats = userStats[user];
+        
+        stats.totalParticipations++;
+        
+        if (isWinner) {
+            stats.totalWins++;
+            stats.totalSpent += bidAmount;
+            
+            if (bidAmount > stats.highestBid) {
+                stats.highestBid = bidAmount;
+            }
+            
+            // Update streak
+            stats.currentStreak++;
+            if (stats.currentStreak > stats.bestStreak) {
+                stats.bestStreak = stats.currentStreak;
+            }
+            
+            // Update leaderboard
+            _updateLeaderboard(user);
+        } else {
+            // Reset streak if not winner
+            stats.currentStreak = 0;
+        }
+        
+        emit StatsUpdated(user, stats.totalWins, stats.totalParticipations);
+    }
+    
+    /**
+     * @notice Update leaderboard with new winner
+     */
+    function _updateLeaderboard(address user) internal {
+        // Simple leaderboard: if user has more wins than last place, add them
+        if (topWinners.length < LEADERBOARD_SIZE) {
+            // Add if not already in leaderboard
+            bool exists = false;
+            for (uint256 i = 0; i < topWinners.length; i++) {
+                if (topWinners[i] == user) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                topWinners.push(user);
+            }
+        } else {
+            // Find lowest wins in leaderboard
+            uint256 lowestWins = userStats[topWinners[0]].totalWins;
+            uint256 lowestIndex = 0;
+            
+            for (uint256 i = 1; i < LEADERBOARD_SIZE; i++) {
+                if (userStats[topWinners[i]].totalWins < lowestWins) {
+                    lowestWins = userStats[topWinners[i]].totalWins;
+                    lowestIndex = i;
+                }
+            }
+            
+            // Replace if user has more wins
+            if (userStats[user].totalWins > lowestWins) {
+                topWinners[lowestIndex] = user;
+            }
+        }
+    }
+    
     // =============== VIEW FUNCTIONS ===============
     function getAuctionTimes(uint256 auctionId) external view returns (uint256 start, uint256 commitEnd, uint256 revealEnd) {
         Auction storage auction = auctions[auctionId];
@@ -625,6 +933,83 @@ contract HighestVoice {
             }
             unchecked { ++i; }
         }
+    }
+
+    /**
+     * @notice Get leaderboard (top winners)
+     * @return addresses Array of top winner addresses
+     * @return wins Array of win counts
+     */
+    function getLeaderboard() external view returns (address[] memory addresses, uint256[] memory wins) {
+        uint256 length = topWinners.length;
+        addresses = new address[](length);
+        wins = new uint256[](length);
+        
+        for (uint256 i = 0; i < length; i++) {
+            addresses[i] = topWinners[i];
+            wins[i] = userStats[topWinners[i]].totalWins;
+        }
+    }
+    
+    /**
+     * @notice Get user statistics
+     * @param user Address to query
+     */
+    function getUserStats(address user) external view returns (
+        uint256 totalWins,
+        uint256 totalSpent,
+        uint256 highestBid,
+        uint256 totalParticipations,
+        uint256 totalTipsReceived,
+        uint256 currentStreak,
+        uint256 bestStreak,
+        uint256 winRate // in basis points (10000 = 100%)
+    ) {
+        UserStats memory stats = userStats[user];
+        
+        totalWins = stats.totalWins;
+        totalSpent = stats.totalSpent;
+        highestBid = stats.highestBid;
+        totalParticipations = stats.totalParticipations;
+        totalTipsReceived = stats.totalTipsReceived;
+        currentStreak = stats.currentStreak;
+        bestStreak = stats.bestStreak;
+        
+        // Calculate win rate
+        if (totalParticipations > 0) {
+            winRate = (totalWins * 10000) / totalParticipations;
+        } else {
+            winRate = 0;
+        }
+    }
+    
+    /**
+     * @notice Get tip stats for an auction
+     * @param auctionId Auction to query
+     */
+    function getAuctionTips(uint256 auctionId) external view returns (uint256 totalTips, uint256 tipperCount) {
+        totalTips = auctionTips[auctionId];
+        // tipperCount would require additional tracking (not implemented for gas efficiency)
+        tipperCount = 0;
+    }
+    
+    /**
+     * @notice Get NFT token ID for an auction
+     * @param auctionId Auction to query
+     * @return tokenId The NFT token ID (0 if no NFT minted)
+     */
+    function getAuctionNFT(uint256 auctionId) external view returns (uint256) {
+        return auctionToNFT[auctionId];
+    }
+    
+    /**
+     * @notice Check if a user has committed to an auction
+     * @param auctionId Auction to query
+     * @param user User address to check
+     * @return True if user has committed
+     */
+    function hasUserCommitted(uint256 auctionId, address user) external view returns (bool) {
+        return auctions[auctionId].hasCommitted[user];
     }
 
     // =============== UTILITY ===============

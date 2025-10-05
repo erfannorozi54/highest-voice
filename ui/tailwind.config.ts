@@ -8,7 +8,35 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: [
+          'Inter',
+          'system-ui',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'sans-serif',
+        ],
+        display: [
+          '"Playfair Display"',
+          'serif',
+        ],
+      },
       colors: {
+        lux: {
+          charcoal: '#13151d',
+          slate: '#1e2028',
+          midnight: '#0f1419',
+          'rose-gold': '#b87333',
+          'rose-gold-light': '#d4a574',
+          copper: '#b87333',
+          bronze: '#cd7f32',
+          cream: '#f8f6f1',
+          'warm-white': '#faf9f6',
+          platinum: '#e5e4e2',
+          silver: '#c0c0c0',
+          gray: '#9ca3af',
+          purple: '#8b5cf6',
+        },
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         card: 'hsl(var(--card))',

@@ -37,7 +37,20 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
 
   log("----------------------------------------------------");
   log(`✅ HighestVoice deployed at: ${highestVoice.address}`);
-  log("The first auction starts automatically upon deployment.");
+  log("");
+  log("📊 Contract Features:");
+  log("   - Second-price sealed-bid auction (24h cycles)");
+  log("   - 🏆 NFT winner certificates (ERC-721)");
+  log("   - 💰 Tipping system for winning posts");
+  log("   - 📈 Leaderboard & user statistics");
+  log("   - 💎 Treasury distribution (50/50 split)");
+  log("");
+  log("🔢 NFT Collection:");
+  log(`   - Name: HighestVoice Winner`);
+  log(`   - Symbol: HVWIN`);
+  log(`   - Contract: ${highestVoice.address}`);
+  log("");
+  log("🎯 The first auction starts automatically upon deployment.");
   
   // Verify on Etherscan if not on local network
   if (network.config.chainId !== 31337 && process.env.ETHERSCAN_API_KEY) {
@@ -59,6 +72,16 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     }
   }
   
+  log("----------------------------------------------------");
+  log("📚 Documentation:");
+  log("   - Features Guide: docs/FEATURES.md");
+  log("   - Treasury Info: docs/TREASURY.md");
+  log("   - Automation: docs/AUTOMATION.md");
+  log("   - Deployment: docs/DEPLOYMENT.md");
+  log("");
+  log("🔗 Useful Commands:");
+  log(`   - Check auction: npx hardhat run scripts/check-auction.js --network ${network.name}`);
+  log(`   - Check surplus: npx hardhat run scripts/check-surplus.js --network ${network.name}`);
   log("----------------------------------------------------");
 };
 

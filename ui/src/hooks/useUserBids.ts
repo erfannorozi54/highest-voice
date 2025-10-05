@@ -90,16 +90,16 @@ export function useUserBids() {
       
       // Add current auction bid if it exists
       if (currentUserBid && currentAuctionId !== undefined) {
-        const [commitHash, collateral, revealed, revealedBid, text, imageCid, voiceCid] = currentUserBid;
+        const [commitHash, collateral, revealed, revealedBid] = currentUserBid;
         
         // Only add if there's an actual bid (commitHash is not zero)
         if (commitHash !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
           const bid: UserBid = {
             auctionId: currentAuctionId,
             amount: collateral,
-            text,
-            imageCid,
-            voiceCid,
+            text: '',
+            imageCid: '',
+            voiceCid: '',
             timestamp: now,
             isRevealed: revealed,
             isWinner: false, // Would need to check if user is winner
@@ -295,49 +295,6 @@ export function useUserBids() {
     isLoading: isInitialLoading,
     refetchAll,
     hasActiveBid: userBids.activeBids.length > 0,
-    canRaiseBid: userBids.activeBids.length > 0 && userBids.activeBids[0].isRevealed === false,
   };
 }
 
-export function useCanRaiseBid() {
-  const { address, isConnected } = useAccount();
-  const { data: currentAuctionId } = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: HIGHEST_VOICE_ABI,
-    functionName: 'currentAuctionId',
-    query: { enabled: !!CONTRACT_ADDRESS },
-  });
-
-  // Get user's current bid
-  const { data: currentUserBid } = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: HIGHEST_VOICE_ABI,
-    functionName: 'getMyBid',
-    account: address as Address,
-    args: currentAuctionId !== undefined && address ? [currentAuctionId] : undefined,
-    query: { enabled: !!CONTRACT_ADDRESS && currentAuctionId !== undefined && !!address },
-  });
-  
-  // Check if user has an active bid in the current auction
-  let canRaise = false;
-  let currentAmount = 0n;
-  let commitHash = '';
-  
-  if (currentUserBid && currentAuctionId !== undefined) {
-    const [bidCommitHash, collateral, revealed] = currentUserBid;
-    
-    // Can raise if there's a bid that's not revealed yet
-    if (bidCommitHash !== '0x0000000000000000000000000000000000000000000000000000000000000000' && 
-        !revealed) {
-      canRaise = true;
-      currentAmount = collateral;
-      commitHash = bidCommitHash;
-    }
-  }
-  
-  return {
-    canRaise,
-    currentAmount,
-    commitHash,
-  };
-}

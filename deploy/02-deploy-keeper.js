@@ -31,6 +31,13 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
 
   log("----------------------------------------------------");
   log(`✅ HighestVoiceKeeper deployed at: ${keeper.address}`);
+  log("");
+  log("🤖 Keeper Functions:");
+  log("   - Automated auction settlement");
+  log("   - Batch refund processing");
+  log("   - NFT minting for winners");
+  log("   - Stats tracking updates");
+  log("");
 
   // Verify on Etherscan if not on local network
   if (network.config.chainId !== 31337 && process.env.ETHERSCAN_API_KEY) {
