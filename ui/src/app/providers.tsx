@@ -1,93 +1,59 @@
 'use client';
 
-import '@rainbow-me/rainbowkit/styles.css';
-import { RainbowKitProvider, getDefaultConfig } from '@rainbow-me/rainbowkit';
-import { WagmiProvider } from 'wagmi';
-import { hardhat, sepolia, mainnet } from 'wagmi/chains';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { WagmiProvider } from 'wagmi';
+import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
 import { Toaster } from 'react-hot-toast';
-import { http } from 'wagmi';
-import { metaMaskWallet, walletConnectWallet, rainbowWallet, injectedWallet } from '@rainbow-me/rainbowkit/wallets';
+import { config } from '@/lib/wagmi';
+import '@rainbow-me/rainbowkit/styles.css';
 
-const projectId = process.env.NEXT_PUBLIC_PROJECT_ID;
-const network = process.env.NEXT_PUBLIC_NETWORK || 'local';
-const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL;
-
-if (!projectId) {
-  throw new Error('NEXT_PUBLIC_PROJECT_ID is not set. Please add it to your .env.local file.');
-}
-
-// Network configuration
-const getNetworkConfig = () => {
-  switch (network) {
-    case 'local':
-      return {
-        chains: [hardhat],
-        transports: {
-          [hardhat.id]: http(rpcUrl || 'http://127.0.0.1:8545'),
-        },
-      };
-    case 'sepolia':
-      return {
-        chains: [sepolia],
-        transports: {
-          [sepolia.id]: http(rpcUrl),
-        },
-      };
-    case 'mainnet':
-      return {
-        chains: [mainnet],
-        transports: {
-          [mainnet.id]: http(rpcUrl),
-        },
-      };
-    default:
-      throw new Error(`Unsupported network: ${network}`);
-  }
-};
-
-const { chains, transports } = getNetworkConfig();
-
-// Wallet configuration - for local development, we'll use injected wallet primarily
-const getWalletConfig = () => {
-  if (network === 'local') {
-    return {
-      wallets: [
-        {
-          groupName: 'Development',
-          wallets: [injectedWallet, metaMaskWallet],
-        },
-      ],
-    };
-  }
-  
-  return {
-    wallets: [
-      {
-        groupName: 'Recommended',
-        wallets: [metaMaskWallet, walletConnectWallet, rainbowWallet, injectedWallet],
-      },
-    ],
-  };
-};
-
-const config = getDefaultConfig({
-  appName: 'Highest Voice',
-  projectId: projectId,
-  chains,
-  transports,
-  ...getWalletConfig(),
-  ssr: true,
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60 * 1000, // 1 minute
+      refetchOnWindowFocus: false,
+    },
+  },
 });
 
-const queryClient = new QueryClient();
+const customTheme = darkTheme({
+  accentColor: '#0ea5e9',
+  accentColorForeground: 'white',
+  borderRadius: 'large',
+  fontStack: 'system',
+  overlayBlur: 'small',
+});
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider>{children}</RainbowKitProvider>
-        <Toaster />
+        <RainbowKitProvider theme={customTheme}>
+          {children}
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              duration: 4000,
+              style: {
+                background: 'rgba(15, 23, 42, 0.8)',
+                color: '#fff',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(12px)',
+                borderRadius: '12px',
+              },
+              success: {
+                style: {
+                  border: '1px solid rgba(34, 197, 94, 0.3)',
+                },
+              },
+              error: {
+                style: {
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                },
+              },
+            }}
+          />
+        </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );

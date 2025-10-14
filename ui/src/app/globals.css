@@ -1,79 +1,234 @@
-@import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @layer base {
   :root {
-    /* Modern Luxury Color System - Charcoal + Rose Gold + Platinum */
-    --background: 225 15% 8%;          /* Deep Charcoal */
-    --foreground: 40 23% 97%;          /* Warm Cream */
-    --card: 222 15% 12%;               /* Rich Slate */
-    --card-foreground: 40 23% 97%;
-    --popover: 222 15% 12%;
-    --popover-foreground: 40 23% 97%;
-    --primary: 25 60% 55%;             /* Rose Gold */
-    --primary-foreground: 225 15% 8%;  /* Dark on Rose Gold */
-    --secondary: 222 20% 22%;          /* Soft Charcoal */
-    --secondary-foreground: 40 23% 97%;
-    --muted: 222 20% 22%;
-    --muted-foreground: 220 10% 60%;   /* Cool Gray */
-    --accent: 270 60% 60%;             /* Royal Purple */
-    --accent-foreground: 40 23% 97%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 40 23% 97%;
-    --border: 25 60% 55% / 0.15;       /* Rose Gold with transparency */
-    --input: 222 15% 12%;
-    --ring: 25 60% 55%;
-    --radius: 1rem;
-    
-    /* Extended Luxury Palette */
-    --platinum: 40 5% 90%;             /* Platinum Silver */
-    --copper: 25 50% 45%;              /* Deep Copper */
-    --warm-white: 40 23% 98%;          /* Warm White */
-    --success: 142 71% 45%;            /* Emerald */
-    --warning: 38 92% 50%;             /* Amber */
-    --info: 199 89% 48%;               /* Cyan */
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
   }
 
-  .dark {
-    --background: 225 15% 8%;
-    --foreground: 40 23% 97%;
-    --card: 222 15% 12%;
-    --card-foreground: 40 23% 97%;
-    --popover: 222 15% 12%;
-    --popover-foreground: 40 23% 97%;
-    --primary: 25 60% 55%;
-    --primary-foreground: 225 15% 8%;
-    --secondary: 222 20% 22%;
-    --secondary-foreground: 40 23% 97%;
-    --muted: 222 20% 22%;
-    --muted-foreground: 220 10% 60%;
-    --accent: 270 60% 60%;
-    --accent-foreground: 200 25% 8%;
-    --destructive: 0 62.8% 51%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 160 84% 39% / 0.15;
-    --input: 200 20% 12%;
-    --ring: 160 84% 39%;
-  }
-}
-
-@layer base {
   * {
-    border-color: hsl(var(--border));
+    @apply border-white/10;
   }
-  
+
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    @apply bg-dark-950 text-white font-sans;
+    background-image: 
+      radial-gradient(circle at 20% 20%, rgba(37, 99, 235, 0.08) 0%, transparent 60%),
+      radial-gradient(circle at 80% 80%, rgba(168, 85, 247, 0.08) 0%, transparent 60%),
+      radial-gradient(circle at 50% 10%, rgba(16, 185, 129, 0.04) 0%, transparent 70%),
+      radial-gradient(circle at 90% 40%, rgba(245, 158, 11, 0.06) 0%, transparent 50%);
+    background-attachment: fixed;
+    background-size: 100% 100%;
   }
-  
-  h1, h2, h3, h4, h5, h6 {
-    font-family: 'Playfair Display', serif;
-    font-weight: 600;
-    letter-spacing: -0.02em;
+
+  html {
+    scroll-behavior: smooth;
   }
 }
 
+@layer components {
+  /* Glass morphism effect */
+  .glass {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10;
+  }
 
+  .glass-dark {
+    @apply bg-black/20 backdrop-blur-xl border border-white/5;
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    @apply bg-gradient-to-r from-primary-400 via-secondary-400 to-accent-400 bg-clip-text text-transparent;
+  }
+
+  .gradient-text-gold {
+    @apply bg-gradient-to-r from-gold-400 via-gold-300 to-gold-500 bg-clip-text text-transparent;
+  }
+
+  /* Cyber button */
+  .btn-cyber {
+    @apply relative px-6 py-3 font-semibold text-white bg-gradient-to-r from-primary-600 to-secondary-600 rounded-lg overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-glow;
+  }
+
+  .btn-cyber::before {
+    content: '';
+    @apply absolute inset-0 bg-gradient-to-r from-primary-400 to-secondary-400 opacity-0 transition-opacity duration-300;
+  }
+
+  .btn-cyber:hover::before {
+    @apply opacity-20;
+  }
+
+  /* Neon border */
+  .neon-border {
+    @apply border-2 border-primary-500/50 rounded-lg;
+    box-shadow: 
+      0 0 10px rgba(59, 130, 246, 0.3),
+      inset 0 0 10px rgba(59, 130, 246, 0.1);
+  }
+
+  .neon-border-secondary {
+    @apply border-2 border-secondary-500/50 rounded-lg;
+    box-shadow: 
+      0 0 10px rgba(217, 70, 239, 0.3),
+      inset 0 0 10px rgba(217, 70, 239, 0.1);
+  }
+
+  /* Card styles */
+  .card-luxury {
+    @apply glass rounded-2xl p-6 shadow-2xl hover:shadow-glow transition-all duration-300 hover:scale-[1.02];
+  }
+
+  .card-neon {
+    @apply neon-border glass rounded-2xl p-6 shadow-2xl transition-all duration-300 hover:shadow-neon;
+  }
+
+  /* Loading spinner */
+  .spinner {
+    @apply animate-spin rounded-full border-4 border-primary-200 border-t-primary-600;
+  }
+
+  /* Scrollbar */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Custom scrollbar */
+  .scrollbar-custom::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-track {
+    @apply bg-dark-800 rounded-full;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-thumb {
+    @apply bg-primary-600 rounded-full hover:bg-primary-500;
+  }
+
+  /* Floating animation */
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  /* Gradient animation */
+  @keyframes gradient-x {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
+  }
+
+  /* Cyber grid background */
+  .cyber-grid {
+    background-image: 
+      linear-gradient(rgba(59, 130, 246, 0.1) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59, 130, 246, 0.1) 1px, transparent 1px);
+    background-size: 50px 50px;
+  }
+
+  /* Status indicators */
+  .status-active {
+    @apply bg-green-500/20 text-green-400 border border-green-500/30;
+  }
+
+  .status-pending {
+    @apply bg-yellow-500/20 text-yellow-400 border border-yellow-500/30;
+  }
+
+  .status-ended {
+    @apply bg-red-500/20 text-red-400 border border-red-500/30;
+  }
+}
+
+@layer utilities {
+  .text-shadow {
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  }
+
+  .text-shadow-glow {
+    text-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+  }
+
+  .backdrop-blur-xs {
+    backdrop-filter: blur(2px);
+  }
+
+  /* Mobile safe area utilities */
+  .safe-area-pt {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .safe-area-pl {
+    padding-left: env(safe-area-inset-left);
+  }
+
+  .safe-area-pr {
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* Custom animations */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+/* Toaster custom styles */
+.Toaster__toast {
+  @apply glass rounded-lg border border-white/10 !important;
+}
+
+.Toaster__toast--success {
+  @apply border-green-500/30 !important;
+}
+
+.Toaster__toast--error {
+  @apply border-red-500/30 !important;
+}
+
+.Toaster__toast--loading {
+  @apply border-primary-500/30 !important;
+}

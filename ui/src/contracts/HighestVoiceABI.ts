@@ -1,6 +1,3 @@
-// Auto-generated from HighestVoice.sol
-// Do not edit manually - run: npx hardhat run scripts/update-frontend-abi.js
-
 export const HIGHEST_VOICE_ABI = [
   {
     "inputs": [
@@ -1171,6 +1168,30 @@ export const HIGHEST_VOICE_ABI = [
         "internalType": "uint256",
         "name": "projectedUntil",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "auctionId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "hasUserCommitted",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",

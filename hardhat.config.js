@@ -17,15 +17,16 @@ module.exports = {
   },
   defaultNetwork: "hardhat",
   networks: {
-    // Local Hardhat network
+    hardhat: {
+      chainId: 31337,
+      accounts: {
+        mnemonic: process.env.MNEMONIC || "test test test test test test test test test test test junk",
+        count: 20,
+      },
+    },
     localhost: {
       url: "http://127.0.0.1:8545",
       chainId: 31337,
-      accounts: {
-        // Use Hardhat's default accounts for local development
-        mnemonic: "test test test test test test test test test test test junk",
-        count: 20,
-      },
     },
     // Sepolia testnet
     sepolia: {
