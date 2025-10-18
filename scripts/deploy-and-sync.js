@@ -55,8 +55,10 @@ function validateNetwork() {
   // Check if .env files exist
   const envPath = path.join(__dirname, '../.env');
   const envLocalPath = path.join(__dirname, '../.env.local');
-  console.log(`   .env file: ${fs.existsSync(envPath) ? '✅ Found' : '❌ Not found'}`);
-  console.log(`   .env.local file: ${fs.existsSync(envLocalPath) ? '✅ Found' : '❌ Not found'}`);
+  const uiEnvLocalPath = path.join(__dirname, '../ui/.env.local');
+  console.log(`   Root .env: ${fs.existsSync(envPath) ? '✅ Found' : '❌ Not found'}`);
+  console.log(`   Root .env.local: ${fs.existsSync(envLocalPath) ? '✅ Found' : '⚪ Not found (optional)'}`);
+  console.log(`   UI .env.local: ${fs.existsSync(uiEnvLocalPath) ? '✅ Found' : '⚪ Will be created'}`);
   
   // Validate environment variables for non-local networks
   if (NETWORK !== 'local') {

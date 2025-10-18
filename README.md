@@ -45,16 +45,27 @@ npm install
 npm run dev
 ```
 
+**On first run**, the setup will ask you for:
+
+- **WalletConnect Project ID** (get FREE at [cloud.walletconnect.com](https://cloud.walletconnect.com))
+  - Press Enter to skip if you don't have one yet
+  - You can add it later in `.env` file
+
 This will:
 
-1. Start Hardhat local node on `http://127.0.0.1:8545`
-2. Deploy all contracts automatically
-3. Sync contract addresses and ABIs to UI
-4. Launch Next.js UI on `http://localhost:3000`
+1. ✅ Check and create `.env` files if needed
+2. 🔧 Prompt for required configuration
+3. 🚀 Start Hardhat local node on `http://127.0.0.1:8545`
+4. 📦 Deploy all contracts automatically
+5. 🔗 Sync contract addresses and ABIs to UI
+6. 🎨 Launch Next.js UI on `http://localhost:3000`
 
 #### Option 2: Manual Setup (More Control)
 
 ```bash
+# First time: Setup environment files
+npm run setup
+
 # Terminal 1: Start local Hardhat node
 npx hardhat node
 
@@ -204,6 +215,13 @@ npx hardhat run scripts/check-nft.js --network localhost 1
 
 ### 🔧 Troubleshooting
 
+**Missing .env files:**
+
+```bash
+# Run setup script to create .env files interactively
+npm run setup
+```
+
 **Port already in use:**
 
 ```bash
@@ -223,6 +241,16 @@ NETWORK=local node scripts/deploy-and-sync.js
 
 # 3. Check ui/.env.local has correct contract address
 cat ui/.env.local
+```
+
+**Missing WalletConnect Project ID:**
+
+```bash
+# Edit .env and add your project ID
+echo "NEXT_PUBLIC_PROJECT_ID=your_project_id_here" >> .env
+
+# Also update ui/.env.local
+echo "NEXT_PUBLIC_PROJECT_ID=your_project_id_here" >> ui/.env.local
 ```
 
 **Missing dependencies:**

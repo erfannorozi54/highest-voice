@@ -292,3 +292,28 @@ export function useHighestVoiceEvents() {
     },
   });
 }
+
+// Hook for legendary token information
+export function useLegendaryToken() {
+  const chainId = useChainId();
+  const contractAddress = getContractAddress(chainId, 'highestVoice');
+
+  const { data: legendaryInfo, isLoading } = useReadContract({
+    address: contractAddress,
+    abi: HIGHEST_VOICE_ABI,
+    functionName: 'getLegendaryTokenInfo',
+  });
+
+  const legendaryData = legendaryInfo ? {
+    tokenId: legendaryInfo[0],
+    holder: legendaryInfo[1] as `0x${string}`,
+    auctionId: legendaryInfo[2],
+    tipAmount: legendaryInfo[3],
+  } : undefined;
+
+  return {
+    legendaryData,
+    isLoading,
+    hasLegendary: legendaryData?.tokenId && legendaryData.tokenId > 0n,
+  };
+}

@@ -10,11 +10,12 @@ import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { AuctionStatus } from '@/components/AuctionStatus';
 import { WinnersFeed } from '@/components/WinnersFeed';
 import { BidModal } from '@/components/BidModal';
+import { LegendaryHolder } from '@/components/LegendaryHolder';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
-import { useCurrentAuction, useUserStats, useUserFunds, useLeaderboard, useHighestVoiceEvents } from '@/hooks/useHighestVoice';
+import { useCurrentAuction, useUserStats, useUserFunds, useLeaderboard, useHighestVoiceEvents, useLegendaryToken } from '@/hooks/useHighestVoice';
 import { useDebugAuction } from '@/hooks/useDebugAuction';
 import { useWinnerPostPreloader } from '@/hooks/useIPFSPreloader';
 import { formatETH, truncateAddress, formatDuration } from '@/lib/utils';
@@ -27,6 +28,7 @@ export default function HomePage() {
   const { stats } = useUserStats(address);
   const { availableNow, lockedActive } = useUserFunds(address);
   const { leaderboard } = useLeaderboard();
+  const { legendaryData, hasLegendary } = useLegendaryToken();
 
   const [bidModalOpen, setBidModalOpen] = useState(false);
   const [bidModalMode, setBidModalMode] = useState<'commit' | 'reveal'>('commit');
@@ -183,6 +185,16 @@ export default function HomePage() {
         <div className="max-w-6xl mx-auto">
           {/* Mobile Layout */}
           <div className="md:hidden space-y-4">
+            {/* Legendary Token Holder - Show if exists */}
+            {hasLegendary && legendaryData && (
+              <LegendaryHolder
+                tokenId={legendaryData.tokenId}
+                holder={legendaryData.holder}
+                auctionId={legendaryData.auctionId}
+                tipAmount={legendaryData.tipAmount}
+              />
+            )}
+
             {/* Mobile Winners Feed - First Priority */}
             <WinnersFeed
               currentWinner={currentWinnerData}
@@ -361,6 +373,16 @@ export default function HomePage() {
 
             {/* Main Feed - Winner Posts First */}
             <div className="lg:col-span-6 space-y-6">
+              {/* Legendary Token Holder - Show if exists */}
+              {hasLegendary && legendaryData && (
+                <LegendaryHolder
+                  tokenId={legendaryData.tokenId}
+                  holder={legendaryData.holder}
+                  auctionId={legendaryData.auctionId}
+                  tipAmount={legendaryData.tipAmount}
+                />
+              )}
+
               {/* Winners Feed - Top Priority */}
               <WinnersFeed
                 currentWinner={currentWinnerData}
