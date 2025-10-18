@@ -10,9 +10,9 @@ module.exports = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200,
+        runs: 1, // Optimize for contract size (reduces bytecode)
       },
-      viaIR: true,
+      viaIR: true, // Required to fix "Stack too deep" error
     },
   },
   defaultNetwork: "hardhat",

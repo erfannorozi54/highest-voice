@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
-import "@openzeppelin/contracts/utils/Base64.sol";
+import "./libraries/NFTRenderer.sol";
 
 /**
  * @title HighestVoice
@@ -13,6 +13,41 @@ import "@openzeppelin/contracts/utils/Base64.sol";
  *         No owner/admin, ETH only, fully decentralized.
  */
 contract HighestVoice is ERC721 {
+    // =============== CUSTOM ERRORS ===============
+    error Locked();
+    error NotInCommitPhase();
+    error NotInRevealPhase();
+    error RevealNotEnded();
+    error InvalidProtocolGuild();
+    error AlreadyCommitted();
+    error CannotRecommitAfterCancel();
+    error InsufficientCollateral();
+    error NoCommit();
+    error AlreadyRevealed();
+    error InvalidReveal();
+    error TextTooLong();
+    error ImageCIDTooLarge();
+    error VoiceCIDTooLarge();
+    error InsufficientFunds();
+    error RevealSlotsFull();
+    error NoCommitToCancel();
+    error CannotCancelRevealed();
+    error AlreadySettled();
+    error InvalidAuction();
+    error AuctionNotSettled();
+    error NoRefundAvailable();
+    error WithdrawalFailed();
+    error NoCollateral();
+    error NoFundsAvailable();
+    error NoSurplus();
+    error DeployerTransferFailed();
+    error ProtocolGuildTransferFailed();
+    error MustSendTip();
+    error NoWinner();
+    error TipTransferFailed();
+    error TokenDoesNotExist();
+    error LegendaryTokenSoulbound();
+    
     // =============== EVENTS ===============
     event NewCommit(address indexed bidder, uint256 auctionId);
     event NewReveal(address indexed bidder, uint256 auctionId, uint256 bid);
@@ -26,13 +61,14 @@ contract HighestVoice is ERC721 {
     event WinnerNFTMinted(address indexed winner, uint256 indexed tokenId, uint256 indexed auctionId);
     event PostTipped(uint256 indexed auctionId, address indexed tipper, uint256 amount);
     event StatsUpdated(address indexed user, uint256 totalWins, uint256 totalParticipations);
+    event LegendaryTokenAwarded(address indexed winner, uint256 indexed tokenId, uint256 indexed auctionId, uint256 totalTips);
 
     // =============== STRUCTS ===============
     struct Post {
         address owner;
         string text; // ≤500 characters (enforced on-chain)
-        string imageCid; // ≤500kB CID string length (actual IPFS file size enforced off-chain)
-        string voiceCid; // ≤1MB CID string length (actual IPFS file size enforced off-chain)
+        string imageCid; // ≤100 bytes CID string (actual IPFS file size enforced off-chain)
+        string voiceCid; // ≤100 bytes CID string (actual IPFS file size enforced off-chain)
         uint256 tipsReceived; // Total tips received for this post
     }
     
@@ -81,10 +117,11 @@ contract HighestVoice is ERC721 {
     uint256 public constant COMMIT_DURATION = 12 hours;
     uint256 public constant REVEAL_DURATION = 12 hours;
     uint256 public constant TEXT_CHARACTER_LIMIT = 500; // More gas-efficient than word counting
-    uint256 public constant IMAGE_CID_LIMIT = 500 * 1024; // bytes
-    uint256 public constant VOICE_CID_LIMIT = 1024 * 1024; // bytes
+    uint256 public constant IMAGE_CID_LIMIT = 100; // bytes (CIDs are ~46 bytes, 100 is plenty)
+    uint256 public constant VOICE_CID_LIMIT = 100; // bytes (CIDs are ~46 bytes, 100 is plenty)
     uint256 public constant INITIAL_MINIMUM_COLLATERAL = 0.01 ether;
     uint256 public constant MAX_MINIMUM_COLLATERAL = 1 ether; // Cap to prevent griefing
+    uint256 public constant MAX_COLLATERAL_STEP_PCT = 50; // Max % increase per auction (prevents whale manipulation)
     uint256 public constant SETTLEMENT_BATCH_SIZE = 50; // Process max 50 bidders per settlement call
     uint256 public constant MAX_REVEALS_PER_AUCTION = 2000; // Cap reveals to prevent economic DoS
     uint256 public constant RECENT_AUCTIONS = 7; // One week (7 x 24h)
@@ -112,6 +149,11 @@ contract HighestVoice is ERC721 {
     mapping(uint256 => WinnerNFT) public winnerNFTs; // tokenId => NFT metadata
     mapping(uint256 => uint256) public auctionToNFT; // auctionId => tokenId
     
+    // Legendary Token (Soulbound)
+    uint256 public legendaryTokenId; // 0 = not yet minted
+    uint256 public highestTippedAuctionId; // Auction with highest tips
+    uint256 public highestTipAmount; // Highest tip amount received
+    
     // =============== TIPPING ===============
     mapping(uint256 => uint256) public auctionTips; // auctionId => total tips
     
@@ -123,7 +165,7 @@ contract HighestVoice is ERC721 {
     // =============== REENTRANCY ===============
     uint256 private unlocked = 1;
     modifier lock() {
-        require(unlocked == 1, "ReentrancyGuard: LOCKED");
+        if (unlocked != 1) revert Locked();
         unlocked = 0;
         _;
         unlocked = 1;
@@ -132,17 +174,17 @@ contract HighestVoice is ERC721 {
     // =============== MODIFIERS ===============
     modifier onlyDuringCommit(uint256 auctionId) {
         Auction storage auction = auctions[auctionId];
-        require(block.timestamp >= auction.startTime && block.timestamp < auction.commitEnd, "Not in commit phase");
+        if (block.timestamp < auction.startTime || block.timestamp >= auction.commitEnd) revert NotInCommitPhase();
         _;
     }
     modifier onlyDuringReveal(uint256 auctionId) {
         Auction storage auction = auctions[auctionId];
-        require(block.timestamp >= auction.commitEnd && block.timestamp < auction.revealEnd, "Not in reveal phase");
+        if (block.timestamp < auction.commitEnd || block.timestamp >= auction.revealEnd) revert NotInRevealPhase();
         _;
     }
     modifier onlyAfterReveal(uint256 auctionId) {
         Auction storage auction = auctions[auctionId];
-        require(block.timestamp >= auction.revealEnd, "Reveal not ended");
+        if (block.timestamp < auction.revealEnd) revert RevealNotEnded();
         _;
     }
 
@@ -151,7 +193,7 @@ contract HighestVoice is ERC721 {
      * @param protocolGuild Address for Protocol Guild (public goods funding)
      */
     constructor(address protocolGuild) ERC721("HighestVoice Winner", "HVWIN") {
-        require(protocolGuild != address(0), "Invalid Protocol Guild address");
+        if (protocolGuild == address(0)) revert InvalidProtocolGuild();
         DEPLOYER = msg.sender;
         PROTOCOL_GUILD = protocolGuild;
         minimumCollateral = INITIAL_MINIMUM_COLLATERAL;
@@ -189,9 +231,9 @@ contract HighestVoice is ERC721 {
     // =============== AUCTION LOGIC ===============
     function commitBid(bytes32 commitHash) external payable onlyDuringCommit(currentAuctionId) lock {
         Auction storage auction = auctions[currentAuctionId];
-        require(!auction.hasCommitted[msg.sender], "Already committed");
-        require(!auction.hasCanceled[msg.sender], "Cannot recommit after canceling");
-        require(msg.value >= minimumCollateral, "Insufficient collateral");
+        if (auction.hasCommitted[msg.sender]) revert AlreadyCommitted();
+        if (auction.hasCanceled[msg.sender]) revert CannotRecommitAfterCancel();
+        if (msg.value < minimumCollateral) revert InsufficientCollateral();
         
         // Mark as committed
         auction.hasCommitted[msg.sender] = true;
@@ -202,15 +244,15 @@ contract HighestVoice is ERC721 {
     function revealBid(uint256 bidAmount, string calldata text, string calldata imageCid, string calldata voiceCid, bytes32 salt) external payable onlyDuringReveal(currentAuctionId) lock {
         Auction storage auction = auctions[currentAuctionId];
         BidCommit storage commit = auction.commits[msg.sender];
-        require(commit.commitHash != bytes32(0), "No commit");
-        require(!commit.revealed, "Already revealed");
-        require(commit.commitHash == keccak256(abi.encode(bidAmount, text, imageCid, voiceCid, salt)), "Invalid reveal");
-        require(bytes(text).length <= TEXT_CHARACTER_LIMIT, "Text too long");
-        require(bytes(imageCid).length <= IMAGE_CID_LIMIT, "Image CID too large");
-        require(bytes(voiceCid).length <= VOICE_CID_LIMIT, "Voice CID too large");
+        if (commit.commitHash == bytes32(0)) revert NoCommit();
+        if (commit.revealed) revert AlreadyRevealed();
+        if (commit.commitHash != keccak256(abi.encode(bidAmount, text, imageCid, voiceCid, salt))) revert InvalidReveal();
+        if (bytes(text).length > TEXT_CHARACTER_LIMIT) revert TextTooLong();
+        if (bytes(imageCid).length > IMAGE_CID_LIMIT) revert ImageCIDTooLarge();
+        if (bytes(voiceCid).length > VOICE_CID_LIMIT) revert VoiceCIDTooLarge();
 
         uint256 totalProvided = commit.collateral + msg.value;
-        require(totalProvided >= bidAmount, "Insufficient funds to cover bid");
+        if (totalProvided < bidAmount) revert InsufficientFunds();
 
         commit.revealed = true;
         commit.revealedBid = bidAmount;
@@ -236,7 +278,7 @@ contract HighestVoice is ERC721 {
             }
             // Require the new reveal to strictly improve the lowest revealed bid when capacity is full
             // CHECK: Is this check correct? probably cause collateral loss.
-            require(bidAmount > minBid, "Reveal slots full");
+            if (bidAmount <= minBid) revert RevealSlotsFull();
 
             // Evict the lowest revealed bid to keep array bounded at MAX_REVEALS_PER_AUCTION
             address evicted = auction.revealedBidders[minIdx];
@@ -280,10 +322,10 @@ contract HighestVoice is ERC721 {
     function cancelBid() external onlyDuringCommit(currentAuctionId) lock {
         Auction storage auction = auctions[currentAuctionId];
         
-        require(auction.hasCommitted[msg.sender], "No commit to cancel");
+        if (!auction.hasCommitted[msg.sender]) revert NoCommitToCancel();
         
         uint256 refundAmount = auction.commits[msg.sender].collateral;
-        require(!auction.commits[msg.sender].revealed, "Cannot cancel a revealed bid");
+        if (auction.commits[msg.sender].revealed) revert CannotCancelRevealed();
 
         // Reset the commit and commitment status
         delete auction.commits[msg.sender];
@@ -302,7 +344,7 @@ contract HighestVoice is ERC721 {
      */
     function settleAuction() external onlyAfterReveal(currentAuctionId) lock {
         Auction storage auction = auctions[currentAuctionId];
-        require(!auction.settled, "Already settled");
+        if (auction.settled) revert AlreadySettled();
         
         uint256 revealedCount = auction.revealedBidders.length;
         
@@ -419,9 +461,26 @@ contract HighestVoice is ERC721 {
                 emit SurplusCalculated(currentAuctionId, auction.secondBid);
             }
             
-            // Update minimum collateral for next auction with cap to prevent griefing
+            // Update minimum collateral with stepwise adjustment to prevent whale manipulation
             if (auction.secondBid > 0) {
-                minimumCollateral = auction.secondBid > MAX_MINIMUM_COLLATERAL ? MAX_MINIMUM_COLLATERAL : auction.secondBid;
+                // Calculate max allowed increase (current + 50%)
+                uint256 maxIncrease = minimumCollateral + (minimumCollateral * MAX_COLLATERAL_STEP_PCT / 100);
+                
+                // Take the minimum of: second bid, max increase, and absolute cap
+                uint256 targetCollateral = auction.secondBid;
+                if (targetCollateral > maxIncrease) {
+                    targetCollateral = maxIncrease;
+                }
+                if (targetCollateral > MAX_MINIMUM_COLLATERAL) {
+                    targetCollateral = MAX_MINIMUM_COLLATERAL;
+                }
+                
+                // Allow decreases immediately (no step limit on the way down)
+                if (targetCollateral < minimumCollateral) {
+                    minimumCollateral = targetCollateral < INITIAL_MINIMUM_COLLATERAL ? INITIAL_MINIMUM_COLLATERAL : targetCollateral;
+                } else {
+                    minimumCollateral = targetCollateral;
+                }
             } else {
                 minimumCollateral = INITIAL_MINIMUM_COLLATERAL;
             }
@@ -445,11 +504,11 @@ contract HighestVoice is ERC721 {
      * @param auctionId The auction ID to withdraw refund from
      */
     function withdrawRefund(uint256 auctionId) external lock {
-        require(auctionId <= currentAuctionId, "Invalid auction");
+        if (auctionId > currentAuctionId) revert InvalidAuction();
         // Allow withdrawal if auction is settled OR if user has canceled their bid
-        require(auctions[auctionId].settled || auctions[auctionId].hasCanceled[msg.sender], "Auction not settled");
+        if (!auctions[auctionId].settled && !auctions[auctionId].hasCanceled[msg.sender]) revert AuctionNotSettled();
         uint256 amount = refunds[auctionId][msg.sender];
-        require(amount > 0, "No refund available");
+        if (amount == 0) revert NoRefundAvailable();
         
         // Clear refund before transfer to prevent reentrancy
         refunds[auctionId][msg.sender] = 0;
@@ -457,7 +516,7 @@ contract HighestVoice is ERC721 {
         emit RefundWithdrawn(msg.sender, auctionId, amount);
         
         (bool sent, ) = msg.sender.call{value: amount}("");
-        require(sent, "Withdrawal failed");
+        if (!sent) revert WithdrawalFailed();
     }
     
     /**
@@ -466,14 +525,14 @@ contract HighestVoice is ERC721 {
      * @param auctionId The auction ID to withdraw from
      */
     function withdrawUnrevealedCollateral(uint256 auctionId) external lock {
-        require(auctionId <= currentAuctionId, "Invalid auction");
+        if (auctionId > currentAuctionId) revert InvalidAuction();
         Auction storage auction = auctions[auctionId];
-        require(block.timestamp >= auction.revealEnd, "Reveal not ended");
+        if (block.timestamp < auction.revealEnd) revert RevealNotEnded();
         BidCommit storage c = auction.commits[msg.sender];
-        require(c.commitHash != bytes32(0), "No commit");
-        require(!c.revealed, "Already revealed");
+        if (c.commitHash == bytes32(0)) revert NoCommit();
+        if (c.revealed) revert AlreadyRevealed();
         uint256 amount = c.collateral;
-        require(amount > 0, "No collateral");
+        if (amount == 0) revert NoCollateral();
         
         // Clear state before transferring to prevent reentrancy and double-withdraw
         c.collateral = 0;
@@ -483,7 +542,7 @@ contract HighestVoice is ERC721 {
         emit RefundWithdrawn(msg.sender, auctionId, amount);
         
         (bool sent, ) = msg.sender.call{value: amount}("");
-        require(sent, "Withdrawal failed");
+        if (!sent) revert WithdrawalFailed();
     }
     
     /**
@@ -529,9 +588,9 @@ contract HighestVoice is ERC721 {
             unchecked { ++i; }
         }
 
-        require(totalWithdrawn > 0, "No funds available");
+        if (totalWithdrawn == 0) revert NoFundsAvailable();
         (bool sent, ) = msg.sender.call{value: totalWithdrawn}("");
-        require(sent, "Withdrawal failed");
+        if (!sent) revert WithdrawalFailed();
     }
     
     /**
@@ -541,7 +600,7 @@ contract HighestVoice is ERC721 {
      */
     function distributeSurplus() external lock {
         uint256 surplus = accumulatedSurplus;
-        require(surplus > 0, "No surplus to distribute");
+        if (surplus == 0) revert NoSurplus();
         
         // Reset accumulated surplus before transfers (checks-effects-interactions pattern)
         accumulatedSurplus = 0;
@@ -553,11 +612,11 @@ contract HighestVoice is ERC721 {
         
         // Transfer to deployer
         (bool sentDeployer, ) = DEPLOYER.call{value: deployerAmount}("");
-        require(sentDeployer, "Deployer transfer failed");
+        if (!sentDeployer) revert DeployerTransferFailed();
         
         // Transfer to Protocol Guild
         (bool sentPublicGoods, ) = PROTOCOL_GUILD.call{value: publicGoodsAmount}("");
-        require(sentPublicGoods, "Protocol Guild transfer failed");
+        if (!sentPublicGoods) revert ProtocolGuildTransferFailed();
         
         emit SurplusDistributed(deployerAmount, publicGoodsAmount, block.timestamp);
     }
@@ -569,10 +628,10 @@ contract HighestVoice is ERC721 {
      * @dev 90% goes to winner, 10% goes to treasury
      */
     function tipWinner(uint256 auctionId) external payable lock {
-        require(msg.value > 0, "Must send tip");
+        if (msg.value == 0) revert MustSendTip();
         Auction storage auction = auctions[auctionId];
-        require(auction.settled, "Auction not settled");
-        require(auction.winner != address(0), "No winner");
+        if (!auction.settled) revert AuctionNotSettled();
+        if (auction.winner == address(0)) revert NoWinner();
         
         // Split tip: 90% to winner, 10% to treasury
         uint256 winnerTip = (msg.value * 90) / 100;
@@ -589,9 +648,15 @@ contract HighestVoice is ERC721 {
             winnerNFTs[tokenId].tipsReceived += msg.value;
         }
         
+        // Check if this auction now has the highest tips and update legendary token
+        uint256 newTotalTips = auctionTips[auctionId];
+        if (newTotalTips > highestTipAmount) {
+            _updateLegendaryToken(auctionId, auction.winner, newTotalTips);
+        }
+        
         // Send funds
         (bool sentWinner, ) = auction.winner.call{value: winnerTip}("");
-        require(sentWinner, "Winner tip transfer failed");
+        if (!sentWinner) revert TipTransferFailed();
         
         accumulatedSurplus += treasuryTip;
         
@@ -599,6 +664,47 @@ contract HighestVoice is ERC721 {
     }
     
     // =============== NFT & GAMIFICATION ===============
+    /**
+     * @notice Internal function to update or mint legendary token for highest-tipped winner
+     */
+    function _updateLegendaryToken(uint256 auctionId, address newWinner, uint256 newTipAmount) internal {
+        highestTipAmount = newTipAmount;
+        highestTippedAuctionId = auctionId;
+        
+        if (legendaryTokenId == 0) {
+            // First time - mint legendary token
+            legendaryTokenId = nextTokenId++;
+            _safeMint(newWinner, legendaryTokenId);
+            
+            // Create special legendary NFT metadata
+            WinnerNFT storage legendaryNFT = winnerNFTs[legendaryTokenId];
+            legendaryNFT.auctionId = auctionId;
+            legendaryNFT.winningBid = auctions[auctionId].winningBid;
+            legendaryNFT.text = auctions[auctionId].winnerPost.text;
+            legendaryNFT.timestamp = block.timestamp;
+            legendaryNFT.tipsReceived = newTipAmount;
+            
+            emit LegendaryTokenAwarded(newWinner, legendaryTokenId, auctionId, newTipAmount);
+        } else {
+            // Transfer legendary token to new highest-tipped winner
+            address currentHolder = ownerOf(legendaryTokenId);
+            if (currentHolder != newWinner) {
+                // Internal transfer (bypasses soulbound restriction)
+                _transfer(currentHolder, newWinner, legendaryTokenId);
+            }
+            
+            // Update legendary NFT metadata to reflect new winner
+            WinnerNFT storage legendaryNFT = winnerNFTs[legendaryTokenId];
+            legendaryNFT.auctionId = auctionId;
+            legendaryNFT.winningBid = auctions[auctionId].winningBid;
+            legendaryNFT.text = auctions[auctionId].winnerPost.text;
+            legendaryNFT.timestamp = block.timestamp;
+            legendaryNFT.tipsReceived = newTipAmount;
+            
+            emit LegendaryTokenAwarded(newWinner, legendaryTokenId, auctionId, newTipAmount);
+        }
+    }
+    
     /**
      * @notice Internal function to mint NFT for winner
      */
@@ -620,136 +726,26 @@ contract HighestVoice is ERC721 {
     }
     
     /**
-     * @notice Generate SVG image for NFT
-     */
-    function _generateSVG(uint256 tokenId, WinnerNFT memory nft) internal pure returns (string memory) {
-        // Convert wei to ETH string (with 4 decimals)
-        uint256 bidInEth = nft.winningBid / 1e14; // Convert to 10000ths of ETH
-        string memory bidStr = string(abi.encodePacked(
-            Strings.toString(bidInEth / 10000),
-            '.',
-            _padZeros(bidInEth % 10000, 4)
-        ));
-        
-        uint256 tipsInEth = nft.tipsReceived / 1e14;
-        string memory tipsStr = string(abi.encodePacked(
-            Strings.toString(tipsInEth / 10000),
-            '.',
-            _padZeros(tipsInEth % 10000, 4)
-        ));
-        
-        return string(abi.encodePacked(
-            '<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500" viewBox="0 0 500 500">',
-            '<defs>',
-            '<linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">',
-            '<stop offset="0%" style="stop-color:#667eea;stop-opacity:1"/>',
-            '<stop offset="100%" style="stop-color:#764ba2;stop-opacity:1"/>',
-            '</linearGradient>',
-            '<linearGradient id="trophy" x1="0%" y1="0%" x2="0%" y2="100%">',
-            '<stop offset="0%" style="stop-color:#ffd700;stop-opacity:1"/>',
-            '<stop offset="100%" style="stop-color:#ffaa00;stop-opacity:1"/>',
-            '</linearGradient>',
-            '</defs>',
-            '<rect width="500" height="500" fill="url(#bg)"/>',
-            // Border
-            '<rect x="20" y="20" width="460" height="460" fill="none" stroke="#fff" stroke-width="3" opacity="0.3" rx="10"/>',
-            // Trophy icon
-            '<circle cx="250" cy="120" r="35" fill="url(#trophy)"/>',
-            '<path d="M 230 155 L 270 155 L 265 180 L 235 180 Z" fill="url(#trophy)"/>',
-            '<rect x="240" y="180" width="20" height="15" fill="url(#trophy)"/>',
-            '<rect x="225" y="195" width="50" height="8" fill="url(#trophy)" rx="4"/>',
-            // Title
-            '<text x="250" y="240" font-family="Arial,sans-serif" font-size="32" font-weight="bold" fill="#ffffff" text-anchor="middle">',
-            'WINNER #', Strings.toString(tokenId),
-            '</text>',
-            // Auction info
-            '<text x="250" y="280" font-family="Arial,sans-serif" font-size="18" fill="#e0e0e0" text-anchor="middle">',
-            'Auction #', Strings.toString(nft.auctionId),
-            '</text>',
-            // Stats box
-            '<rect x="80" y="310" width="340" height="120" fill="#ffffff" opacity="0.1" rx="10"/>',
-            // Winning Bid
-            '<text x="250" y="345" font-family="Arial,sans-serif" font-size="14" fill="#ffffff" text-anchor="middle" opacity="0.8">',
-            'WINNING BID',
-            '</text>',
-            '<text x="250" y="375" font-family="Arial,sans-serif" font-size="24" font-weight="bold" fill="#ffd700" text-anchor="middle">',
-            bidStr, ' ETH',
-            '</text>',
-            // Tips
-            '<text x="250" y="405" font-family="Arial,sans-serif" font-size="14" fill="#ffffff" text-anchor="middle" opacity="0.8">',
-            'TIPS RECEIVED',
-            '</text>',
-            '<text x="250" y="425" font-family="Arial,sans-serif" font-size="18" font-weight="bold" fill="#90ee90" text-anchor="middle">',
-            tipsStr, ' ETH',
-            '</text>',
-            // Footer
-            '<text x="250" y="470" font-family="Arial,sans-serif" font-size="12" fill="#ffffff" text-anchor="middle" opacity="0.6">',
-            'HighestVoice Protocol',
-            '</text>',
-            '</svg>'
-        ));
-    }
-    
-    /**
-     * @notice Helper to pad zeros for decimal display
-     */
-    function _padZeros(uint256 num, uint256 decimals) internal pure returns (string memory) {
-        string memory numStr = Strings.toString(num);
-        bytes memory numBytes = bytes(numStr);
-        
-        if (numBytes.length >= decimals) {
-            return numStr;
-        }
-        
-        bytes memory result = new bytes(decimals);
-        uint256 zerosNeeded = decimals - numBytes.length;
-        
-        for (uint256 i = 0; i < zerosNeeded; i++) {
-            result[i] = '0';
-        }
-        for (uint256 i = 0; i < numBytes.length; i++) {
-            result[zerosNeeded + i] = numBytes[i];
-        }
-        
-        return string(result);
-    }
-    
-    /**
      * @notice Get NFT metadata for a token with on-chain SVG image
+     * @dev Delegates to NFTRenderer library to reduce contract size
      */
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
-        require(tokenId > 0 && tokenId < nextTokenId, "Token doesn't exist");
+        if (tokenId == 0 || tokenId >= nextTokenId) revert TokenDoesNotExist();
         
         WinnerNFT memory nft = winnerNFTs[tokenId];
         
-        // Generate SVG image
-        string memory svg = _generateSVG(tokenId, nft);
-        string memory imageURI = string(abi.encodePacked(
-            'data:image/svg+xml;base64,',
-            Base64.encode(bytes(svg))
-        ));
-        
-        // Create JSON metadata with image
-        string memory json = string(abi.encodePacked(
-            '{"name":"HighestVoice Winner #',
-            Strings.toString(tokenId),
-            '","description":"Winner of auction #',
-            Strings.toString(nft.auctionId),
-            ' on the HighestVoice protocol. This NFT certifies victory in a second-price sealed-bid auction where voices compete for on-chain projection.",',
-            '"image":"', imageURI, '",',
-            '"attributes":[',
-            '{"trait_type":"Auction","value":"', Strings.toString(nft.auctionId), '"},',
-            '{"trait_type":"Token ID","value":"', Strings.toString(tokenId), '"},',
-            '{"trait_type":"Winning Bid","display_type":"number","value":"', Strings.toString(nft.winningBid), '"},',
-            '{"trait_type":"Tips Received","display_type":"number","value":"', Strings.toString(nft.tipsReceived), '"},',
-            '{"trait_type":"Timestamp","display_type":"date","value":', Strings.toString(nft.timestamp), '}',
-            ']}'
-        ));
-        
-        return string(abi.encodePacked(
-            'data:application/json;base64,',
-            Base64.encode(bytes(json))
-        ));
+        // Use library to generate complete token URI
+        return NFTRenderer.generateTokenURI(
+            tokenId,
+            NFTRenderer.WinnerNFTData({
+                auctionId: nft.auctionId,
+                winningBid: nft.winningBid,
+                text: nft.text,
+                timestamp: nft.timestamp,
+                tipsReceived: nft.tipsReceived
+            }),
+            isLegendaryToken(tokenId)
+        );
     }
     
     // =============== STATS & LEADERBOARD ===============
@@ -1012,6 +1008,52 @@ contract HighestVoice is ERC721 {
         return auctions[auctionId].hasCommitted[user];
     }
 
+    /**
+     * @notice Check if a token is the legendary soulbound token
+     * @param tokenId Token ID to check
+     * @return True if token is the legendary token
+     */
+    function isLegendaryToken(uint256 tokenId) public view returns (bool) {
+        return tokenId == legendaryTokenId && legendaryTokenId != 0;
+    }
+    
+    /**
+     * @notice Get legendary token information
+     * @return tokenId The legendary token ID (0 if not yet minted)
+     * @return holder Current holder of legendary token (address(0) if not minted)
+     * @return auctionId Auction ID with highest tips
+     * @return tipAmount Highest tip amount received
+     */
+    function getLegendaryTokenInfo() external view returns (
+        uint256 tokenId,
+        address holder,
+        uint256 auctionId,
+        uint256 tipAmount
+    ) {
+        tokenId = legendaryTokenId;
+        if (tokenId > 0) {
+            holder = ownerOf(tokenId);
+        }
+        auctionId = highestTippedAuctionId;
+        tipAmount = highestTipAmount;
+    }
+    
+    /**
+     * @notice Override _update to make legendary token soulbound (non-transferable)
+     * @dev Legendary token can only be transferred internally by the contract when a new winner claims it
+     */
+    function _update(address to, uint256 tokenId, address auth) internal override returns (address) {
+        address from = _ownerOf(tokenId);
+        
+        // Block user-initiated transfers of legendary token (soulbound)
+        // Allow minting (from == address(0)) and internal transfers (auth == address(this))
+        if (isLegendaryToken(tokenId) && from != address(0) && auth != address(this)) {
+            revert LegendaryTokenSoulbound();
+        }
+        
+        return super._update(to, tokenId, auth);
+    }
+    
     // =============== UTILITY ===============
     receive() external payable { revert("Use commitBid"); }
 }

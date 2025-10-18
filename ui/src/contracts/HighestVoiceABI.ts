@@ -11,6 +11,41 @@ export const HIGHEST_VOICE_ABI = [
     "type": "constructor"
   },
   {
+    "inputs": [],
+    "name": "AlreadyCommitted",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "AlreadyRevealed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "AlreadySettled",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "AuctionNotSettled",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "CannotCancelRevealed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "CannotRecommitAfterCancel",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "DeployerTransferFailed",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -114,6 +149,136 @@ export const HIGHEST_VOICE_ABI = [
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "ImageCIDTooLarge",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InsufficientCollateral",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InsufficientFunds",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidAuction",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidProtocolGuild",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidReveal",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "LegendaryTokenSoulbound",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "Locked",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "MustSendTip",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoCollateral",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoCommit",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoCommitToCancel",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoFundsAvailable",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoRefundAvailable",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoSurplus",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoWinner",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotInCommitPhase",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotInRevealPhase",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ProtocolGuildTransferFailed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "RevealNotEnded",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "RevealSlotsFull",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TextTooLong",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TipTransferFailed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TokenDoesNotExist",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "VoiceCIDTooLarge",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "WithdrawalFailed",
+    "type": "error"
+  },
+  {
     "anonymous": false,
     "inputs": [
       {
@@ -186,6 +351,37 @@ export const HIGHEST_VOICE_ABI = [
       }
     ],
     "name": "BidCancelled",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "winner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "auctionId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "totalTips",
+        "type": "uint256"
+      }
+    ],
+    "name": "LegendaryTokenAwarded",
     "type": "event"
   },
   {
@@ -555,6 +751,19 @@ export const HIGHEST_VOICE_ABI = [
   {
     "inputs": [],
     "name": "LEADERBOARD_SIZE",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MAX_COLLATERAL_STEP_PCT",
     "outputs": [
       {
         "internalType": "uint256",
@@ -954,6 +1163,34 @@ export const HIGHEST_VOICE_ABI = [
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "getLegendaryTokenInfo",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "holder",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "auctionId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tipAmount",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -1198,6 +1435,32 @@ export const HIGHEST_VOICE_ABI = [
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "highestTipAmount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "highestTippedAuctionId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -1211,6 +1474,25 @@ export const HIGHEST_VOICE_ABI = [
       }
     ],
     "name": "isApprovedForAll",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "isLegendaryToken",
     "outputs": [
       {
         "internalType": "bool",
@@ -1270,6 +1552,19 @@ export const HIGHEST_VOICE_ABI = [
   {
     "inputs": [],
     "name": "lastWinnerTime",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "legendaryTokenId",
     "outputs": [
       {
         "internalType": "uint256",

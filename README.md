@@ -18,10 +18,12 @@ Each auction round lasts 24 hours (12h commit + 12h reveal). The winner's post i
 ### 🎮 Gamification & Social
 
 - 🏆 **NFT Winner Certificates** - ERC-721 NFTs for each winner
+- 👑 **Legendary Soulbound Token** - Non-transferable NFT for highest-tipped winner
 - 💰 **Tipping System** - Tip winning posts (90/10 split)
 - 📊 **Leaderboard** - Top 10 winners ranked by wins
 - 📈 **User Stats** - Win rate, streaks, tips received, and more
 - 🔥 **Win Streaks** - Track consecutive victories
+- ✨ **Dynamic Trophy** - Legendary token automatically transfers to new champion
 
 ### 💎 Treasury
 
@@ -31,20 +33,56 @@ Each auction round lasts 24 hours (12h commit + 12h reveal). The winner's post i
 
 ## Quick Start
 
+### 🚀 Local Development (Recommended)
+
+#### Option 1: One Command (Easiest)
+
 ```bash
-# Install dependencies
+# Install all dependencies (root + UI)
 npm install
 
-# Local development
-npx hardhat node                              # Terminal 1
-npx hardhat deploy --tags all --network localhost  # Terminal 2
-
-# Deploy to Sepolia testnet
-npx hardhat deploy --tags all --network sepolia
-
-# Deploy to mainnet
-npx hardhat deploy --tags all --network mainnet
+# Start local node + deploy contracts + launch UI (one command)
+npm run dev
 ```
+
+This will:
+
+1. Start Hardhat local node on `http://127.0.0.1:8545`
+2. Deploy all contracts automatically
+3. Sync contract addresses and ABIs to UI
+4. Launch Next.js UI on `http://localhost:3000`
+
+#### Option 2: Manual Setup (More Control)
+
+```bash
+# Terminal 1: Start local Hardhat node
+npx hardhat node
+
+# Terminal 2: Deploy contracts and sync to UI
+NETWORK=local node scripts/deploy-and-sync.js
+
+# Terminal 3: Start the UI
+cd ui && npm run dev
+```
+
+#### Access the App
+
+- 🌐 **Frontend**: <http://localhost:3000>
+- 🔗 **Local Node**: <http://127.0.0.1:8545>
+- 👛 **Test Account**: `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`
+- 🔑 **Private Key**: `0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
+
+### 🌐 Deploy to Testnets/Mainnet
+
+```bash
+# Sepolia testnet
+npm run dev:sepolia
+
+# Mainnet
+npm run dev:mainnet
+```
+
+**Requirements**: Set `INFURA_PROJECT_ID` and `PRIVATE_KEY` in `.env`
 
 ## Documentation
 
@@ -59,7 +97,9 @@ npx hardhat deploy --tags all --network mainnet
 ```tree
 ├── contracts/
 │   ├── HighestVoice.sol          # Main auction contract
-│   └── HighestVoiceKeeper.sol    # Chainlink Automation keeper
+│   ├── HighestVoiceKeeper.sol    # Chainlink Automation keeper
+│   └── libraries/
+│       └── NFTRenderer.sol       # External library for SVG/metadata generation
 ├── deploy/
 │   ├── 01-deploy-highest-voice.js
 │   └── 02-deploy-keeper.js
@@ -86,6 +126,9 @@ Main auction contract with:
 - **Reveal phase** (12h) - Reveal your bid
 - **Settlement** - Winner pays second-highest bid
 - **Batch processing** - Handles large auctions safely
+- **NFT Minting** - Winner NFTs with on-chain SVG metadata
+- **Legendary Token** - Soulbound NFT for most beloved voice (highest tips)
+- **Automatic Trophy Transfer** - Legendary token moves to new champion
 
 ### HighestVoiceKeeper.sol
 
@@ -120,6 +163,10 @@ getAuctionNFT(uint256 auctionId) returns (uint256)
 balanceOf(address owner) returns (uint256)
 ownerOf(uint256 tokenId) returns (address)
 tokenURI(uint256 tokenId) returns (string)
+
+// Legendary Token
+getLegendaryTokenInfo() returns (uint256 tokenId, address holder, uint256 auctionId, uint256 tipAmount)
+isLegendaryToken(uint256 tokenId) returns (bool)
 ```
 
 ### For Automation
@@ -143,21 +190,49 @@ keeper.manualSettle()
 ## Development
 
 ```bash
-# Quick test
-./test-local.sh                    # One command: deploy + test
+# Compile contracts
+npx hardhat compile
 
-# Or manually
-npx hardhat compile                # Compile contracts
-npx hardhat test                   # Run tests
-npx hardhat deploy --tags all --network localhost  # Deploy
-
-# Frontend
-cd ui && npm install && npm run dev
+# Run tests
+npx hardhat test
 
 # View data
 npx hardhat run scripts/check-leaderboard.js --network localhost
 npx hardhat run scripts/check-user-stats.js --network localhost 0xADDRESS
 npx hardhat run scripts/check-nft.js --network localhost 1
+```
+
+### 🔧 Troubleshooting
+
+**Port already in use:**
+
+```bash
+# Kill process on port 8545 (Hardhat node)
+lsof -ti:8545 | xargs kill -9
+
+# Kill process on port 3000 (Next.js)
+lsof -ti:3000 | xargs kill -9
+```
+
+**UI not connecting to local contracts:**
+
+```bash
+# 1. Ensure local node is running
+# 2. Re-run deployment sync
+NETWORK=local node scripts/deploy-and-sync.js
+
+# 3. Check ui/.env.local has correct contract address
+cat ui/.env.local
+```
+
+**Missing dependencies:**
+
+```bash
+# Install root dependencies
+npm install
+
+# Install UI dependencies
+npm install --workspace=ui
 ```
 
 **See [DEV_GUIDE.md](DEV_GUIDE.md) for complete development documentation.**
