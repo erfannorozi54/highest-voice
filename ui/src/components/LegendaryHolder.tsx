@@ -1,10 +1,11 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Crown, Sparkles, TrendingUp, Trophy, Zap, Award } from 'lucide-react';
+import { Crown, Sparkles, TrendingUp, Trophy, Zap, Award, MessageSquare } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { formatETH, truncateAddress } from '@/lib/utils';
+import { useWinnerNFT } from '@/hooks/useHighestVoice';
 
 interface LegendaryHolderProps {
   tokenId: bigint;
@@ -14,6 +15,7 @@ interface LegendaryHolderProps {
 }
 
 export function LegendaryHolder({ tokenId, holder, auctionId, tipAmount }: LegendaryHolderProps) {
+  const { nft, isLoading: nftLoading } = useWinnerNFT(tokenId);
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -49,7 +51,7 @@ export function LegendaryHolder({ tokenId, holder, auctionId, tipAmount }: Legen
         </motion.div>
 
         <div className="relative p-6">
-          {/* Header - Legendary Badge */}
+          {/* Header - The Most Beloved Voice Badge */}
           <div className="flex items-center justify-center mb-6">
             <motion.div
               animate={{ 
@@ -64,7 +66,7 @@ export function LegendaryHolder({ tokenId, holder, auctionId, tipAmount }: Legen
             >
               <Crown className="w-6 h-6 text-white drop-shadow-lg" />
               <span className="text-lg font-black text-white tracking-wider drop-shadow-lg">
-                LEGENDARY HOLDER
+                THE MOST BELOVED VOICE
               </span>
               <Crown className="w-6 h-6 text-white drop-shadow-lg" />
             </motion.div>
@@ -80,7 +82,7 @@ export function LegendaryHolder({ tokenId, holder, auctionId, tipAmount }: Legen
                     <Trophy className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Current Champion</p>
+                    <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Most Tipped Voice Owner</p>
                     <p className="text-xl font-bold bg-gradient-to-r from-gold-300 to-gold-500 bg-clip-text text-transparent">
                       {truncateAddress(holder, 6, 4)}
                     </p>
@@ -119,6 +121,26 @@ export function LegendaryHolder({ tokenId, holder, auctionId, tipAmount }: Legen
               </div>
             </div>
 
+            {/* Post Content */}
+            {nft && nft.text && (
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-purple-500/10 to-pink-500/10 border border-purple-500/30">
+                <div className="flex items-start space-x-3 mb-3">
+                  <div className="p-2 rounded-lg bg-purple-500/20 flex-shrink-0">
+                    <MessageSquare className="w-5 h-5 text-purple-400" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white mb-1">Their Voice</h4>
+                    <p className="text-xs text-gray-400">The message that earned the most tips</p>
+                  </div>
+                </div>
+                <div className="p-4 rounded-lg bg-dark-900/50 border border-white/10">
+                  <p className="text-white leading-relaxed text-sm">
+                    {nft.text}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Achievement Banner */}
             <motion.div
               initial={{ scale: 0.95 }}
@@ -132,11 +154,11 @@ export function LegendaryHolder({ tokenId, holder, auctionId, tipAmount }: Legen
                 </div>
                 <div className="flex-1">
                   <h4 className="text-sm font-bold text-white mb-1">
-                    🏆 Most Beloved Voice
+                    🏆 The Most Beloved Voice
                   </h4>
                   <p className="text-xs text-gray-400 leading-relaxed">
-                    This soulbound NFT represents the highest-tipped winner in HighestVoice history.
-                    The legendary token automatically transfers to new champions who receive more tips.
+                    This soulbound NFT represents the most tipped voice in HighestVoice history.
+                    The Most Beloved Voice token automatically transfers to new winners who receive more tips.
                   </p>
                 </div>
               </div>

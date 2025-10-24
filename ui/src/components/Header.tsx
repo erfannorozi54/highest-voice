@@ -229,6 +229,117 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
             className="md:hidden py-4 border-t border-white/10"
           >
             <div className="space-y-2">
+              {/* Connect Wallet Button - Mobile */}
+              <div className="px-4 pb-3 border-b border-white/10">
+                <ConnectButton.Custom>
+                  {({
+                    account,
+                    chain,
+                    openAccountModal,
+                    openChainModal,
+                    openConnectModal,
+                    authenticationStatus,
+                    mounted,
+                  }) => {
+                    const ready = mounted && authenticationStatus !== 'loading';
+                    const connected =
+                      ready &&
+                      account &&
+                      chain &&
+                      (!authenticationStatus ||
+                        authenticationStatus === 'authenticated');
+
+                    return (
+                      <div
+                        {...(!ready && {
+                          'aria-hidden': true,
+                          'style': {
+                            opacity: 0,
+                            pointerEvents: 'none',
+                            userSelect: 'none',
+                          },
+                        })}
+                      >
+                        {(() => {
+                          if (!connected) {
+                            return (
+                              <Button
+                                onClick={openConnectModal}
+                                variant="cyber"
+                                size="md"
+                                className="w-full"
+                                glow
+                              >
+                                Connect Wallet
+                              </Button>
+                            );
+                          }
+
+                          if (chain.unsupported) {
+                            return (
+                              <Button
+                                onClick={openChainModal}
+                                variant="outline"
+                                size="md"
+                                className="w-full border-red-500/50 text-red-400"
+                              >
+                                Wrong Network
+                              </Button>
+                            );
+                          }
+
+                          return (
+                            <div className="space-y-2">
+                              <Button
+                                onClick={openChainModal}
+                                variant="ghost"
+                                size="sm"
+                                className="w-full justify-start"
+                              >
+                                {chain.hasIcon && (
+                                  <div
+                                    style={{
+                                      background: chain.iconBackground,
+                                      width: 16,
+                                      height: 16,
+                                      borderRadius: 999,
+                                      overflow: 'hidden',
+                                      marginRight: 8,
+                                    }}
+                                  >
+                                    {chain.iconUrl && (
+                                      <img
+                                        alt={chain.name ?? 'Chain icon'}
+                                        src={chain.iconUrl}
+                                        style={{ width: 16, height: 16 }}
+                                      />
+                                    )}
+                                  </div>
+                                )}
+                                {chain.name}
+                              </Button>
+
+                              <Button
+                                onClick={openAccountModal}
+                                variant="outline"
+                                size="md"
+                                className="w-full font-mono"
+                              >
+                                {account.displayName}
+                                {account.displayBalance
+                                  ? ` (${account.displayBalance})`
+                                  : ''}
+                              </Button>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    );
+                  }}
+                </ConnectButton.Custom>
+              </div>
+
+              {/* Navigation Links */}
               {navigation.map((item) => (
                 <a
                   key={item.name}

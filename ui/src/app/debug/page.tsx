@@ -1,14 +1,12 @@
 'use client';
 
 import { useAccount, useChainId } from 'wagmi';
-import { useDebugAuction } from '@/hooks/useDebugAuction';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 
 export default function DebugPage() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
-  const debug = useDebugAuction();
 
   return (
     <div className="min-h-screen p-8">
@@ -38,73 +36,6 @@ export default function DebugPage() {
           </CardContent>
         </Card>
 
-        {/* Contract Data */}
-        <Card variant="glass">
-          <CardHeader>
-            <CardTitle>Contract Data</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <div className="flex justify-between">
-              <span>Loading:</span>
-              <Badge variant={debug.isLoading ? 'warning' : 'success'}>
-                {debug.isLoading ? 'Yes' : 'No'}
-              </Badge>
-            </div>
-            <div className="flex justify-between">
-              <span>Has Error:</span>
-              <Badge variant={debug.hasError ? 'error' : 'success'}>
-                {debug.hasError ? 'Yes' : 'No'}
-              </Badge>
-            </div>
-            <div className="flex justify-between">
-              <span>Current Auction ID:</span>
-              <span>{debug.currentAuctionId?.toString() || 'Loading...'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Countdown End:</span>
-              <span>{debug.countdownEnd?.toString() || 'Loading...'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Minimum Collateral:</span>
-              <span>{debug.minimumCollateral?.toString() || 'Loading...'}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Errors */}
-        {debug.hasError && (
-          <Card variant="glass" className="border-red-500/50">
-            <CardHeader>
-              <CardTitle className="text-red-400">Errors</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {debug.errors.auctionIdError && (
-                <div>
-                  <strong>Auction ID Error:</strong>
-                  <pre className="text-sm text-red-300 mt-1 p-2 bg-red-900/20 rounded">
-                    {JSON.stringify(debug.errors.auctionIdError, null, 2)}
-                  </pre>
-                </div>
-              )}
-              {debug.errors.countdownError && (
-                <div>
-                  <strong>Countdown Error:</strong>
-                  <pre className="text-sm text-red-300 mt-1 p-2 bg-red-900/20 rounded">
-                    {JSON.stringify(debug.errors.countdownError, null, 2)}
-                  </pre>
-                </div>
-              )}
-              {debug.errors.collateralError && (
-                <div>
-                  <strong>Collateral Error:</strong>
-                  <pre className="text-sm text-red-300 mt-1 p-2 bg-red-900/20 rounded">
-                    {JSON.stringify(debug.errors.collateralError, null, 2)}
-                  </pre>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
 
         {/* Environment Variables */}
         <Card variant="glass">

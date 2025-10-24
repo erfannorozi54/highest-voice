@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useAccount } from 'wagmi';
+import { useAccount, useSignMessage } from 'wagmi';
 import { Hash, Eye, EyeOff, Upload, AlertCircle, Info } from 'lucide-react';
 import { Modal } from './ui/Modal';
 import { Input } from './ui/Input';
@@ -38,6 +38,7 @@ const BidModal: React.FC<BidModalProps> = ({
 }) => {
   const { address } = useAccount();
   const { commitBid, revealBid, isPending } = useHighestVoiceWrite();
+  const { signMessageAsync } = useSignMessage();
 
   // Form state
   const [bidAmount, setBidAmount] = useState(existingCommit?.bidAmount || '');
@@ -47,11 +48,65 @@ const BidModal: React.FC<BidModalProps> = ({
   const [salt, setSalt] = useState(existingCommit?.salt || '');
   const [collateral, setCollateral] = useState('');
   const [additionalCollateral, setAdditionalCollateral] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingAudio, setUploadingAudio] = useState(false);
 
   // UI state
   const [showCommitDetails, setShowCommitDetails] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [commitHash, setCommitHash] = useState<`0x${string}` | null>(null);
+
+  const uploadToIPFS = async (file: File, type: 'image' | 'audio') => {
+    if (!address) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+    const isImage = type === 'image';
+    const maxSize = isImage ? 500 * 1024 : 1024 * 1024;
+    const allowed = isImage
+      ? ['png', 'jpg', 'jpeg', 'webp']
+      : ['mp3', 'wav', 'ogg', 'm4a', 'webm'];
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    if (!allowed.includes(ext)) {
+      toast.error(`Invalid ${type} file type`);
+      return;
+    }
+    if (file.size > maxSize) {
+      toast.error(`${isImage ? 'Image' : 'Audio'} too large`);
+      return;
+    }
+    try {
+      isImage ? setUploadingImage(true) : setUploadingAudio(true);
+      const getRes = await fetch(`/api/ipfs-upload?address=${address}`);
+      if (!getRes.ok) {
+        const err = await getRes.json().catch(() => ({} as any));
+        throw new Error(err?.error || 'Failed to start upload');
+      }
+      const { message, nonce, ts } = await getRes.json();
+      const signature = await signMessageAsync({ message });
+      const form = new FormData();
+      form.set('file', file);
+      form.set('type', type);
+      form.set('address', address);
+      form.set('signature', signature);
+      form.set('nonce', nonce);
+      form.set('ts', String(ts));
+      const upRes = await fetch('/api/ipfs-upload', { method: 'POST', body: form });
+      const data = await upRes.json().catch(() => ({} as any));
+      if (!upRes.ok) {
+        throw new Error(data?.error || 'Upload failed');
+      }
+      const cid = data?.cid as string;
+      if (!cid) throw new Error('Missing CID');
+      if (isImage) setImageCid(cid);
+      else setVoiceCid(cid);
+      toast.success(`${isImage ? 'Image' : 'Audio'} uploaded`);
+    } catch (e: any) {
+      toast.error(e?.message || 'Upload failed');
+    } finally {
+      isImage ? setUploadingImage(false) : setUploadingAudio(false);
+    }
+  };
 
   // Generate salt on mount for commit mode
   useEffect(() => {
@@ -249,31 +304,98 @@ const BidModal: React.FC<BidModalProps> = ({
             </div>
           </div>
 
-          {/* IPFS CIDs */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Input
-              label="Image CID (Optional)"
-              placeholder="QmXXX... or baXXX..."
-              value={imageCid}
-              onChange={(e) => setImageCid(e.target.value)}
-              error={errors.imageCid}
-              helper="IPFS CID for your image"
-              variant="cyber"
-              disabled={isPending}
-              icon={<Upload className="w-4 h-4" />}
-            />
+          {/* IPFS CIDs with integrated upload */}
+          {!address && (
+            <Card variant="cyber" className="p-3 bg-yellow-500/10 border-yellow-500/30">
+              <div className="flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                <p className="text-sm text-yellow-300">Please connect your wallet first to upload files</p>
+              </div>
+            </Card>
+          )}
 
-            <Input
-              label="Voice CID (Optional)"
-              placeholder="QmXXX... or baXXX..."
-              value={voiceCid}
-              onChange={(e) => setVoiceCid(e.target.value)}
-              error={errors.voiceCid}
-              helper="IPFS CID for your audio"
-              variant="cyber"
-              disabled={isPending}
-              icon={<Upload className="w-4 h-4" />}
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Image CID with Upload */}
+            <div className="relative">
+              <input
+                type="file"
+                id="image-upload"
+                accept=".png,.jpg,.jpeg,.webp"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) uploadToIPFS(f, 'image');
+                  e.target.value = ''; // Reset input
+                }}
+                disabled={isPending || !address || uploadingImage}
+              />
+              <Input
+                label="Image CID (Optional)"
+                placeholder="QmXXX... or baXXX..."
+                value={imageCid}
+                onChange={(e) => setImageCid(e.target.value)}
+                error={errors.imageCid}
+                helper={uploadingImage ? "Uploading..." : "Click upload icon or paste CID. Max 500KB"}
+                variant="cyber"
+                disabled={isPending || uploadingImage}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!address) {
+                    toast.error('Please connect your wallet first');
+                    return;
+                  }
+                  document.getElementById('image-upload')?.click();
+                }}
+                disabled={isPending || uploadingImage}
+                className="absolute right-3 top-[38px] p-2 rounded-lg bg-primary-500/20 hover:bg-primary-500/30 text-primary-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Upload image"
+              >
+                <Upload className={`w-4 h-4 ${uploadingImage ? 'animate-pulse' : ''}`} />
+              </button>
+            </div>
+
+            {/* Voice CID with Upload */}
+            <div className="relative">
+              <input
+                type="file"
+                id="audio-upload"
+                accept=".mp3,.wav,.ogg,.m4a,.webm"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) uploadToIPFS(f, 'audio');
+                  e.target.value = ''; // Reset input
+                }}
+                disabled={isPending || !address || uploadingAudio}
+              />
+              <Input
+                label="Voice CID (Optional)"
+                placeholder="QmXXX... or baXXX..."
+                value={voiceCid}
+                onChange={(e) => setVoiceCid(e.target.value)}
+                error={errors.voiceCid}
+                helper={uploadingAudio ? "Uploading..." : "Click upload icon or paste CID. Max 1MB"}
+                variant="cyber"
+                disabled={isPending || uploadingAudio}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!address) {
+                    toast.error('Please connect your wallet first');
+                    return;
+                  }
+                  document.getElementById('audio-upload')?.click();
+                }}
+                disabled={isPending || uploadingAudio}
+                className="absolute right-3 top-[38px] p-2 rounded-lg bg-secondary-500/20 hover:bg-secondary-500/30 text-secondary-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Upload audio"
+              >
+                <Upload className={`w-4 h-4 ${uploadingAudio ? 'animate-pulse' : ''}`} />
+              </button>
+            </div>
           </div>
 
           {/* Collateral (Commit mode) */}
