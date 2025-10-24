@@ -3,17 +3,21 @@
 ## Summary of Changes
 
 ### 1. Mock Data Updated
+
 **File**: `ui/src/app/page.tsx`
 
 Both mock winner posts now use your Pinata-hosted content:
+
 ```typescript
 imageCid: 'bafkreibkz5a2zrfralir72jcomvbrejvo4h7wk7ssasjt4vj4ecbswi3c4'
 ```
 
 ### 2. Gateway Configuration
+
 **File**: `ui/src/app/api/ipfs/[cid]/route.ts`
 
 Gateway priority order:
+
 1. ✅ **Your Dedicated Gateway**: `https://tan-deliberate-louse-99.mypinata.cloud`
 2. Pinata Public Gateway
 3. IPFS.io
@@ -21,6 +25,7 @@ Gateway priority order:
 5. dweb.link
 
 ### 3. Environment Variables
+
 **File**: `.env`
 
 ```env
@@ -30,10 +35,12 @@ PINATA_JWT=  # Optional, for authenticated requests
 ```
 
 ### 4. CID Format Support
+
 - ✅ **CIDv0**: `Qm...` (46 chars, base58)
 - ✅ **CIDv1**: `baf...` (59+ chars, base32) - **Your CID format**
 
 ### 5. Optimizations for Pinata
+
 - Special cache headers for Pinata requests
 - 15-second timeout per gateway
 - Automatic fallback to other gateways
@@ -41,18 +48,21 @@ PINATA_JWT=  # Optional, for authenticated requests
 
 ## Quick Test
 
-### Test the IPFS API directly:
+### Test the IPFS API directly
+
 ```bash
 curl http://localhost:3000/api/ipfs/bafkreibkz5a2zrfralir72jcomvbrejvo4h7wk7ssasjt4vj4ecbswi3c4
 ```
 
-### Test in Browser:
+### Test in Browser
+
 1. Open `http://localhost:3000`
 2. You should see winner posts with images from your Pinata gateway
 3. Check browser console for fetch logs
 4. Check Network tab to verify requests go through `/api/ipfs/`
 
-### Verify Gateway Usage:
+### Verify Gateway Usage
+
 ```bash
 # Check response headers
 curl -I http://localhost:3000/api/ipfs/bafkreibkz5a2zrfralir72jcomvbrejvo4h7wk7ssasjt4vj4ecbswi3c4
@@ -65,14 +75,15 @@ curl -I http://localhost:3000/api/ipfs/bafkreibkz5a2zrfralir72jcomvbrejvo4h7wk7s
 ## Backend Logs
 
 When the image loads, you'll see in the console:
-```
+
+```text
 Trying to fetch bafkreibkz5a2zrfralir72jcomvbrejvo4h7wk7ssasjt4vj4ecbswi3c4 from https://tan-deliberate-louse-99.mypinata.cloud/ipfs/
 Successfully fetched bafkreibkz5a2zrfralir72jcomvbrejvo4h7wk7ssasjt4vj4ecbswi3c4 from https://tan-deliberate-louse-99.mypinata.cloud/ipfs/ (X bytes, content-type)
 ```
 
 ## File Structure
 
-```
+```text
 highest-voice/
 ├── .env                                    # Updated with Pinata config
 ├── .env.example                            # Updated with Pinata config
@@ -100,16 +111,19 @@ highest-voice/
 ## Cache Management
 
 ### View Cache Statistics
+
 ```bash
 curl http://localhost:3000/api/ipfs-cache
 ```
 
 ### Clear Cache
+
 ```bash
 curl -X DELETE http://localhost:3000/api/ipfs-cache
 ```
 
 ### Preload Content
+
 ```bash
 curl -X POST http://localhost:3000/api/ipfs-cache \
   -H "Content-Type: application/json" \
@@ -119,12 +133,15 @@ curl -X POST http://localhost:3000/api/ipfs-cache \
 ## Next Steps
 
 ### For Production
+
 1. **Add Pinata JWT** to `.env` for authenticated requests:
+
    ```env
    PINATA_JWT=your_jwt_token_here
    ```
 
 2. **Update API to use JWT** in `ui/src/app/api/ipfs/[cid]/route.ts`:
+
    ```typescript
    if (process.env.PINATA_JWT && gateway.includes('pinata')) {
      headers['Authorization'] = `Bearer ${process.env.PINATA_JWT}`;
@@ -142,6 +159,7 @@ curl -X POST http://localhost:3000/api/ipfs-cache \
    - Add cache warming for popular content
 
 ### For Development
+
 1. **Upload Test Content**
    - Use Pinata dashboard or API
    - Add CIDs to mock data
@@ -156,17 +174,22 @@ curl -X POST http://localhost:3000/api/ipfs-cache \
 ## Troubleshooting
 
 ### Issue: Images not loading
+
 **Solution**: Check backend logs for gateway attempts:
+
 ```bash
 # Should see:
 # Trying to fetch bafkreib... from https://tan-deliberate-louse-99.mypinata.cloud/ipfs/
 ```
 
 ### Issue: Slow loading
+
 **Solution**: First load takes time (fetching from IPFS), subsequent loads are instant (from cache)
 
 ### Issue: Cache not working
-**Solution**: 
+
+**Solution**:
+
 ```bash
 # Check cache directory exists
 ls -la ui/.ipfs-cache/

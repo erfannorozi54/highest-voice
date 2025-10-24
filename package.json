@@ -9,7 +9,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "setup": "node scripts/setup-env.js",
-    "dev": "npm run setup && npm run dev:local",
+    "clean:local": "rm -rf deployments/localhost artifacts cache ui/.next && node scripts/clean-local-env.js",
+    "reset:local": "bash scripts/reset-local.sh",
+    "dev": "npm run setup && npm run clean:local && npm run dev:local",
     "dev:local": "concurrently --kill-others-on-fail \"npx hardhat node\" \"sleep 5 && NETWORK=local node scripts/deploy-and-sync.js && npm --prefix ui run dev\"",
     "dev:sepolia": "npm run setup && NETWORK=sepolia node scripts/deploy-and-sync.js && npm --prefix ui run dev",
     "dev:mainnet": "npm run setup && NETWORK=mainnet node scripts/deploy-and-sync.js && npm --prefix ui run dev",

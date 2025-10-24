@@ -53,37 +53,35 @@ npm run dev
 
 This will:
 
-1. ✅ Check and create `.env` files if needed
-2. 🔧 Prompt for required configuration
-3. 🚀 Start Hardhat local node on `http://127.0.0.1:8545`
-4. 📦 Deploy all contracts automatically
-5. 🔗 Sync contract addresses and ABIs to UI
-6. 🎨 Launch Next.js UI on `http://localhost:3000`
-
-#### Option 2: Manual Setup (More Control)
-
 ```bash
-# First time: Setup environment files
-npm run setup
+# Create environment files
+cp .env.example .env
+cp ui/.env.example ui/.env
 
-# Terminal 1: Start local Hardhat node
+# Terminal 1: Start Hardhat node
 npx hardhat node
 
-# Terminal 2: Deploy contracts and sync to UI
-NETWORK=local node scripts/deploy-and-sync.js
-
-# Terminal 3: Start the UI
+# Terminal 2: Deploy contracts and start UI
+npm run deploy:local
 cd ui && npm run dev
 ```
 
-#### Access the App
+### Other Networks
+
+```bash
+# Deploy to Sepolia testnet
+npm run deploy:sepolia
+
+# Deploy to mainnet
+npm run deploy:mainnet
+```
+
+### Access the App
 
 - 🌐 **Frontend**: <http://localhost:3000>
 - 🔗 **Local Node**: <http://127.0.0.1:8545>
 - 👛 **Test Account**: `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`
 - 🔑 **Private Key**: `0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
-
-### 🌐 Deploy to Testnets/Mainnet
 
 ```bash
 # Sepolia testnet

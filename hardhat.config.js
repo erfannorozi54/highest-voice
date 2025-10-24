@@ -30,8 +30,8 @@ module.exports = {
     },
     // Sepolia testnet
     sepolia: {
-      url: process.env.INFURA_PROJECT_ID 
-        ? `https://sepolia.infura.io/v3/${process.env.INFURA_PROJECT_ID}`
+      url: process.env.INFURA_ID_SEPOLIA 
+        ? `https://sepolia.infura.io/v3/${process.env.INFURA_ID_SEPOLIA}`
         : process.env.SEPOLIA_RPC_URL || "",
       chainId: 11155111,
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
@@ -39,8 +39,8 @@ module.exports = {
     },
     // Ethereum mainnet
     mainnet: {
-      url: process.env.INFURA_PROJECT_ID 
-        ? `https://mainnet.infura.io/v3/${process.env.INFURA_PROJECT_ID}`
+      url: process.env.INFURA_ID_MAINNET 
+        ? `https://mainnet.infura.io/v3/${process.env.INFURA_ID_MAINNET}`
         : process.env.MAINNET_RPC_URL || "",
       chainId: 1,
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
