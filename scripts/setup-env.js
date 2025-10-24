@@ -14,7 +14,7 @@ const question = (query) => new Promise((resolve) => rl.question(query, resolve)
 const ROOT_DIR = path.join(__dirname, '..');
 const ROOT_ENV = path.join(ROOT_DIR, '.env');
 const ROOT_ENV_EXAMPLE = path.join(ROOT_DIR, '.env.example');
-const UI_ENV = path.join(ROOT_DIR, 'ui', '.env.local');
+const UI_ENV = path.join(ROOT_DIR, 'ui', '.env');
 const UI_ENV_EXAMPLE = path.join(ROOT_DIR, 'ui', '.env.example');
 
 console.log('\n🔧 HighestVoice Environment Setup\n');
@@ -64,11 +64,11 @@ async function setupRootEnv() {
 
 async function setupUIEnv() {
   if (fs.existsSync(UI_ENV)) {
-    console.log('✅ UI .env.local file already exists');
+    console.log('✅ UI .env file already exists');
     return true;
   }
 
-  console.log('📝 Creating UI .env.local file...\n');
+  console.log('📝 Creating UI .env file...\n');
 
   if (!fs.existsSync(UI_ENV_EXAMPLE)) {
     console.error('❌ Error: ui/.env.example not found!');
@@ -99,7 +99,7 @@ async function setupUIEnv() {
   envContent = '# Contract addresses will be auto-populated by deployment script\n' + envContent;
 
   fs.writeFileSync(UI_ENV, envContent);
-  console.log('✅ Created UI .env.local file\n');
+  console.log('✅ Created UI .env file\n');
   console.log('ℹ️  Contract addresses will be automatically set during deployment\n');
   return true;
 }
@@ -120,10 +120,10 @@ async function main() {
     console.log('✨ Environment setup complete!\n');
     console.log('📋 Summary:');
     console.log('   • Root .env: ' + (fs.existsSync(ROOT_ENV) ? '✅' : '❌'));
-    console.log('   • UI .env.local: ' + (fs.existsSync(UI_ENV) ? '✅' : '❌'));
+    console.log('   • UI .env: ' + (fs.existsSync(UI_ENV) ? '✅' : '❌'));
     console.log('\n🚀 You can now run: npm run dev\n');
     console.log('📝 To configure for testnet/mainnet, edit .env manually');
-    console.log('   and add INFURA_PROJECT_ID and PRIVATE_KEY\n');
+    console.log('   and add INFURA_ID_SEPOLIA, INFURA_ID_MAINNET, and PRIVATE_KEY\n');
 
   } catch (error) {
     console.error('❌ Setup failed:', error.message);

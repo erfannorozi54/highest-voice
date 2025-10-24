@@ -25,14 +25,14 @@ const NETWORK_CONFIG = {
   sepolia: {
     name: 'sepolia',
     chainId: 11155111,
-    rpcUrl: `https://sepolia.infura.io/v3/${process.env.INFURA_PROJECT_ID}`,
+    rpcUrl: `https://sepolia.infura.io/v3/${process.env.INFURA_ID_SEPOLIA}`,
     deploymentDir: 'sepolia',
     description: 'Sepolia Testnet'
   },
   mainnet: {
     name: 'mainnet',
     chainId: 1,
-    rpcUrl: `https://mainnet.infura.io/v3/${process.env.INFURA_PROJECT_ID}`,
+    rpcUrl: `https://mainnet.infura.io/v3/${process.env.INFURA_ID_MAINNET}`,
     deploymentDir: 'mainnet',
     description: 'Ethereum Mainnet'
   }
@@ -49,7 +49,11 @@ function validateNetwork() {
   // Debug: Show environment variable status
   console.log(`\n🔍 Environment Variables Debug:`);
   console.log(`   NETWORK: ${NETWORK}`);
-  console.log(`   INFURA_PROJECT_ID: ${process.env.INFURA_PROJECT_ID ? '✅ Set' : '❌ Not set'}`);
+  if (NETWORK === 'sepolia') {
+    console.log(`   INFURA_ID_SEPOLIA: ${process.env.INFURA_ID_SEPOLIA ? '✅ Set' : '❌ Not set'}`);
+  } else if (NETWORK === 'mainnet') {
+    console.log(`   INFURA_ID_MAINNET: ${process.env.INFURA_ID_MAINNET ? '✅ Set' : '❌ Not set'}`);
+  }
   console.log(`   PRIVATE_KEY: ${process.env.PRIVATE_KEY ? '✅ Set' : '❌ Not set'}`);
   
   // Check if .env files exist
@@ -62,9 +66,15 @@ function validateNetwork() {
   
   // Validate environment variables for non-local networks
   if (NETWORK !== 'local') {
-    if (!process.env.INFURA_PROJECT_ID) {
-      console.error('\n❌ INFURA_PROJECT_ID is required for non-local networks');
-      console.error('   Please add INFURA_PROJECT_ID to your .env file');
+    // Check for environment-specific Infura ID
+    if (NETWORK === 'sepolia' && !process.env.INFURA_ID_SEPOLIA) {
+      console.error('\n❌ INFURA_ID_SEPOLIA is required for Sepolia deployment');
+      console.error('   Please add INFURA_ID_SEPOLIA to your .env file');
+      process.exit(1);
+    }
+    if (NETWORK === 'mainnet' && !process.env.INFURA_ID_MAINNET) {
+      console.error('\n❌ INFURA_ID_MAINNET is required for Mainnet deployment');
+      console.error('   Please add INFURA_ID_MAINNET to your .env file');
       process.exit(1);
     }
     if (!process.env.PRIVATE_KEY) {
@@ -77,13 +87,19 @@ function validateNetwork() {
   return config;
 }
 
-function updateEnvFile(contractAddress, networkConfig) {
-  const envPath = path.join(__dirname, '../ui/.env.local');
-  let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+function updateEnvFile(contractAddress, keeperAddress, networkConfig) {
+  const envPath = path.join(__dirname, '../ui/.env');
+  
+  // Read existing .env file or create from template
+  let envContent = '';
+  if (fs.existsSync(envPath)) {
+    envContent = fs.readFileSync(envPath, 'utf8');
+  }
   
   // Update or add environment variables
   const updates = {
     'NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT': contractAddress,
+    'NEXT_PUBLIC_KEEPER_CONTRACT': keeperAddress || '',
     'NEXT_PUBLIC_NETWORK': NETWORK,
     'NEXT_PUBLIC_CHAIN_ID': networkConfig.chainId.toString(),
     'NEXT_PUBLIC_RPC_URL': networkConfig.rpcUrl
@@ -94,18 +110,29 @@ function updateEnvFile(contractAddress, networkConfig) {
     const newEntry = `${key}=${value}`;
     
     if (regex.test(envContent)) {
+      // Update existing entry
       envContent = envContent.replace(regex, newEntry);
     } else {
+      // Add new entry
       envContent += `\n${newEntry}`;
     }
   });
 
-  fs.writeFileSync(envPath, envContent.trim());
+  // Ensure the directory exists
+  const uiDir = path.join(__dirname, '../ui');
+  if (!fs.existsSync(uiDir)) {
+    fs.mkdirSync(uiDir, { recursive: true });
+  }
+
+  fs.writeFileSync(envPath, envContent.trim() + '\n');
   console.log(`✅ Updated environment variables in ${envPath}`);
+  console.log(`   Contract: ${contractAddress}`);
+  console.log(`   Keeper: ${keeperAddress || 'Not deployed'}`);
+  console.log(`   Network: ${NETWORK} (Chain ID: ${networkConfig.chainId})`);
 }
 
 function checkExistingContract() {
-  const envPath = path.join(__dirname, '../ui/.env.local');
+  const envPath = path.join(__dirname, '../ui/.env');
   
   if (!fs.existsSync(envPath)) {
     return null;
@@ -139,6 +166,12 @@ function shouldDeploy(networkConfig) {
   
   console.log(`🔍 Found existing contract address: ${existingAddress}`);
   
+  // For local network, always redeploy since Hardhat node resets on restart
+  if (networkConfig.name === 'localhost') {
+    console.log('🔄 Local network detected - forcing fresh deployment');
+    return { shouldDeploy: true, existingAddress: null };
+  }
+  
   // Check if deployment file exists for this network
   const deploymentPath = path.join(__dirname, `../deployments/${networkConfig.deploymentDir}/HighestVoice.json`);
   
@@ -162,20 +195,31 @@ function main() {
     console.log(`📡 RPC URL: ${networkConfig.rpcUrl}`);
     console.log(`🔗 Chain ID: ${networkConfig.chainId}`);
     
+    // For localhost, ALWAYS deploy fresh contracts since Hardhat resets state
+    const forceRedeploy = networkConfig.name === 'localhost';
+    
+    if (forceRedeploy) {
+      console.log('🔄 Local network detected - forcing fresh deployment (Hardhat node resets on restart)');
+    }
+    
     // Check if we need to deploy
-    const { shouldDeploy: needsDeployment, existingAddress } = shouldDeploy(networkConfig);
+    const { shouldDeploy: needsDeployment, existingAddress } = forceRedeploy 
+      ? { shouldDeploy: true, existingAddress: null }
+      : shouldDeploy(networkConfig);
     
     let contractAddress;
+    let keeperAddress;
     let contractAbi;
     
     if (needsDeployment) {
-      // 1. Deploy the contract
-      console.log(`\n📦 Deploying contract to ${networkConfig.name}...`);
+      // 1. Deploy the contracts
+      console.log(`\n📦 Deploying contracts to ${networkConfig.name}...`);
       execSync(`npx hardhat deploy --network ${networkConfig.name}`, { stdio: 'inherit' });
-      console.log('✅ Contract deployed successfully.');
+      console.log('✅ Contracts deployed successfully.');
 
-      // 2. Read the deployment file
+      // 2. Read the deployment files
       const deploymentPath = path.join(__dirname, `../deployments/${networkConfig.deploymentDir}/HighestVoice.json`);
+      const keeperPath = path.join(__dirname, `../deployments/${networkConfig.deploymentDir}/HighestVoiceKeeper.json`);
       
       if (!fs.existsSync(deploymentPath)) {
         throw new Error(`Deployment file not found at ${deploymentPath}`);
@@ -184,11 +228,28 @@ function main() {
       const deployment = JSON.parse(fs.readFileSync(deploymentPath, 'utf8'));
       contractAddress = deployment.address;
       
+      // Try to read keeper contract if it exists
+      if (fs.existsSync(keeperPath)) {
+        const keeperDeployment = JSON.parse(fs.readFileSync(keeperPath, 'utf8'));
+        keeperAddress = keeperDeployment.address;
+      }
+      
       console.log(`\n📍 New contract deployed at: ${contractAddress}`);
+      if (keeperAddress) {
+        console.log(`📍 Keeper contract deployed at: ${keeperAddress}`);
+      }
     } else {
       // Use existing contract address
       contractAddress = existingAddress;
       console.log(`\n📍 Using existing contract at: ${contractAddress}`);
+      
+      // Try to read keeper from deployment
+      const keeperPath = path.join(__dirname, `../deployments/${networkConfig.deploymentDir}/HighestVoiceKeeper.json`);
+      if (fs.existsSync(keeperPath)) {
+        const keeperDeployment = JSON.parse(fs.readFileSync(keeperPath, 'utf8'));
+        keeperAddress = keeperDeployment.address;
+        console.log(`📍 Keeper contract at: ${keeperAddress}`);
+      }
     }
     
     // 3. Read the artifact file for ABI
@@ -211,7 +272,7 @@ function main() {
     console.log(`⛓️  Chain ID: ${networkConfig.chainId}`);
 
     // 4. Update environment variables
-    updateEnvFile(contractAddress, networkConfig);
+    updateEnvFile(contractAddress, keeperAddress, networkConfig);
 
     // 5. Sync the ABI to the UI's contract file
     const abiPath = path.join(__dirname, '../ui/src/contracts/HighestVoiceABI.ts');

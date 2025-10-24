@@ -48,6 +48,7 @@ winnerNFTs[tokenId] // Returns WinnerNFT struct
 ### Usage Examples
 
 **Check your NFTs:**
+
 ```javascript
 const balance = await contract.balanceOf(userAddress);
 console.log(`You have ${balance} winner NFTs!`);
@@ -63,6 +64,7 @@ console.log(`Tips: ${ethers.formatEther(nft.tipsReceived)} ETH`);
 ```
 
 **Display in UI:**
+
 ```typescript
 function WinnerNFTBadge({ auctionId }: { auctionId: number }) {
   const { data: tokenId } = useReadContract({
@@ -94,7 +96,7 @@ function WinnerNFTBadge({ auctionId }: { auctionId: number }) {
 
 ## 2. 💰 Tipping System
 
-### What It Does
+### What It Does (Tipping System)
 
 Anyone can tip a winning post to show appreciation. Tips are split 90/10 between winner and treasury.
 
@@ -105,7 +107,7 @@ Anyone can tip a winning post to show appreciation. Tips are split 90/10 between
 3. 10% goes to treasury (deployer + Protocol Guild)
 4. Tip amounts are tracked on NFT and stats
 
-### Contract Functions
+### Contract Functions (Tipping System)
 
 ```solidity
 // Tip a winner
@@ -123,9 +125,10 @@ userStats[winner].totalTipsReceived // User lifetime tips
 winnerNFTs[tokenId].tipsReceived // On the NFT
 ```
 
-### Usage Examples
+### Usage Examples (Typping system)
 
 **Send a tip:**
+
 ```javascript
 // Tip 0.05 ETH to auction #5 winner
 await contract.tipWinner(5, {
@@ -134,6 +137,7 @@ await contract.tipWinner(5, {
 ```
 
 **Track tips:**
+
 ```javascript
 // Get total tips for auction
 const [totalTips, ] = await contract.getAuctionTips(5);
@@ -145,6 +149,7 @@ console.log(`Total tips received: ${ethers.formatEther(stats.totalTipsReceived)}
 ```
 
 **UI Integration:**
+
 ```typescript
 function TipButton({ auctionId }: { auctionId: number }) {
   const { writeContract } = useWriteContract();
@@ -176,7 +181,7 @@ function TipButton({ auctionId }: { auctionId: number }) {
 }
 ```
 
-### Benefits
+### Benefits Of Tipping System
 
 - ✅ Rewards quality content
 - ✅ Direct monetization for winners
@@ -188,7 +193,7 @@ function TipButton({ auctionId }: { auctionId: number }) {
 
 ## 3. 📊 Leaderboard & Stats
 
-### What It Does
+### What It Does (Leaderboard)
 
 Tracks detailed statistics for every user and maintains a top 10 leaderboard.
 
@@ -206,7 +211,7 @@ struct UserStats {
 }
 ```
 
-### Contract Functions
+### Contract Functions (Leaderboard)
 
 ```solidity
 // Get user statistics
@@ -232,9 +237,10 @@ userStats[userAddress] // Returns UserStats struct
 topWinners // Array of top 10 addresses
 ```
 
-### Usage Examples
+### Usage Examples (Leaderboard)
 
 **Display user stats:**
+
 ```javascript
 const stats = await contract.getUserStats(userAddress);
 
@@ -248,6 +254,7 @@ console.log(`Tips Received: ${ethers.formatEther(stats.totalTipsReceived)} ETH`)
 ```
 
 **Show leaderboard:**
+
 ```javascript
 const [addresses, wins] = await contract.getLeaderboard();
 
@@ -258,6 +265,7 @@ for (let i = 0; i < addresses.length; i++) {
 ```
 
 **UI Component:**
+
 ```typescript
 function UserProfile({ address }: { address: string }) {
   const { data: stats } = useReadContract({
@@ -307,6 +315,7 @@ function UserProfile({ address }: { address: string }) {
 ```
 
 **Leaderboard Component:**
+
 ```typescript
 function Leaderboard() {
   const { data } = useReadContract({
@@ -336,7 +345,7 @@ function Leaderboard() {
 }
 ```
 
-### Benefits
+### Benefits (Leaderboard)
 
 - ✅ Competitive element
 - ✅ Track personal performance
@@ -375,6 +384,7 @@ event StatsUpdated(
 ```
 
 **Listen for events:**
+
 ```javascript
 // Listen for NFT mints
 contract.on("WinnerNFTMinted", (winner, tokenId, auctionId) => {
