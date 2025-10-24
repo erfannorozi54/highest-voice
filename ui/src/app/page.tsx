@@ -16,15 +16,14 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
 import { useCurrentAuction, useUserStats, useUserFunds, useLeaderboard, useHighestVoiceEvents, useLegendaryToken } from '@/hooks/useHighestVoice';
-import { useDebugAuction } from '@/hooks/useDebugAuction';
 import { useWinnerPostPreloader } from '@/hooks/useIPFSPreloader';
 import { formatETH, truncateAddress, formatDuration } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import toast from 'react-hot-toast';
 
 export default function HomePage() {
   const { address, isConnected } = useAccount();
   const { auctionInfo, isLoading: auctionLoading } = useCurrentAuction();
-  const debug = useDebugAuction();
   const { stats } = useUserStats(address);
   const { availableNow, lockedActive } = useUserFunds(address);
   const { leaderboard } = useLeaderboard();
@@ -77,6 +76,10 @@ export default function HomePage() {
   };
 
   const handleCommitBid = () => {
+    if (!isConnected) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
     setBidModalMode('commit');
     setBidModalOpen(true);
   };
@@ -128,6 +131,10 @@ export default function HomePage() {
   // useWinnerPostPreloader(mockWinners);
 
   const handleRevealBid = () => {
+    if (!isConnected) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
     setBidModalMode('reveal');
     setBidModalOpen(true);
   };
@@ -147,12 +154,7 @@ export default function HomePage() {
         <div className="text-center space-y-4">
           <Spinner size="xl" variant="neon" />
           <p className="text-gray-400">Loading auction data...</p>
-          {/* Debug info */}
-          <div className="text-xs text-gray-500 space-y-1">
-            <p>Debug - Chain ID: {debug.currentAuctionId ? 'Connected' : 'Loading...'}</p>
-            <p>Debug - Contract calls: {debug.isLoading ? 'Loading' : 'Complete'}</p>
-            {debug.hasError && <p className="text-red-400">Debug - Has errors!</p>}
-          </div>
+          
         </div>
       </div>
     );

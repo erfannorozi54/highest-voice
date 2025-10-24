@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Home, Trophy, Users, User, Plus } from 'lucide-react';
+import { Zap, Trophy, Users, Wallet, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface MobileBottomNavProps {
@@ -17,17 +17,20 @@ export function MobileBottomNav({
 }: MobileBottomNavProps) {
   const [active, setActive] = useState(activeTab);
 
-  const handleTabClick = (tab: string) => {
+  const handleTabClick = (tab: string, href?: string) => {
     setActive(tab);
+    if (href) {
+      window.location.href = href;
+    }
     onTabChange?.(tab);
   };
 
   const tabs = [
-    { id: 'home', icon: Home, label: 'Home' },
-    { id: 'leaderboard', icon: Trophy, label: 'Winners' },
-    { id: 'create', icon: Plus, label: 'Create', isCreate: true },
-    { id: 'explore', icon: Users, label: 'Explore' },
-    { id: 'profile', icon: User, label: 'Profile' },
+    { id: 'home', icon: Zap, label: 'Auction', href: '/' },
+    { id: 'leaderboard', icon: Trophy, label: 'Leaderboard', href: '/leaderboard' },
+    { id: 'create', icon: Plus, label: 'Bid', isCreate: true },
+    { id: 'nfts', icon: Users, label: 'NFTs', href: '/nfts' },
+    { id: 'portfolio', icon: Wallet, label: 'Portfolio', href: '/portfolio' },
   ];
 
   return (
@@ -49,7 +52,7 @@ export function MobileBottomNav({
                 if (isCreate) {
                   onCreatePost?.();
                 } else {
-                  handleTabClick(tab.id);
+                  handleTabClick(tab.id, tab.href);
                 }
               }}
               className={cn(

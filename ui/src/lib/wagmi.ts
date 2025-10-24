@@ -1,58 +1,41 @@
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
+import { http, webSocket } from 'wagmi';
 import { mainnet, sepolia, hardhat } from 'wagmi/chains';
+const CHAINS = [hardhat, sepolia, mainnet] as const;
 
-// Custom chain configuration for local development
-const localhost = {
-  id: 31337,
-  name: 'Localhost',
-  nativeCurrency: {
-    decimals: 18,
-    name: 'Ether',
-    symbol: 'ETH',
-  },
-  rpcUrls: {
-    default: {
-      http: ['http://127.0.0.1:8545'],
+const createConfig = () =>
+  getDefaultConfig({
+    appName: 'HighestVoice',
+    projectId: process.env.NEXT_PUBLIC_PROJECT_ID || '03b8b4e5bda44ee68341d1439233f49b',
+    chains: CHAINS,
+    transports: {
+      [hardhat.id]: webSocket('ws://127.0.0.1:8545'),
+      [sepolia.id]: http('/api/rpc?chainId=11155111'),
+      [mainnet.id]: http('/api/rpc?chainId=1'),
     },
-    public: {
-      http: ['http://127.0.0.1:8545'],
-    },
-  },
-  blockExplorers: {
-    default: { name: 'Local', url: 'http://localhost:8545' },
-  },
-  testnet: true,
-} as const;
+    ssr: false,
+  });
 
-export const config = getDefaultConfig({
-  appName: 'HighestVoice',
-  projectId: process.env.NEXT_PUBLIC_PROJECT_ID || '03b8b4e5bda44ee68341d1439233f49b',
-  chains: [
-    ...(process.env.NODE_ENV === 'development' ? [localhost] : []),
-    sepolia,
-    mainnet,
-  ],
-  ssr: true,
-});
+export const config = (globalThis as any).__hv_wagmi_config ?? ((globalThis as any).__hv_wagmi_config = createConfig());
 
 // Network configuration
 export const NETWORKS = {
   localhost: {
     chainId: 31337,
     name: 'Localhost',
-    rpcUrl: 'http://127.0.0.1:8545',
+    rpcUrl: '/api/rpc?chainId=31337',
     blockExplorer: 'http://localhost:8545',
   },
   sepolia: {
     chainId: 11155111,
     name: 'Sepolia',
-    rpcUrl: `https://sepolia.infura.io/v3/${process.env.NEXT_PUBLIC_INFURA_PROJECT_ID}`,
+    rpcUrl: '/api/rpc?chainId=11155111',
     blockExplorer: 'https://sepolia.etherscan.io',
   },
   mainnet: {
     chainId: 1,
     name: 'Ethereum',
-    rpcUrl: `https://mainnet.infura.io/v3/${process.env.NEXT_PUBLIC_INFURA_PROJECT_ID}`,
+    rpcUrl: '/api/rpc?chainId=1',
     blockExplorer: 'https://etherscan.io',
   },
 } as const;

@@ -6,8 +6,8 @@ const CACHE_DIR = path.join(process.cwd(), '.ipfs-cache');
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB in bytes
 const CACHE_DURATION = 7 * 24 * 60 * 60; // 7 days in seconds
 
-// IPFS gateways to try in order - prioritize Pinata dedicated gateway
-const PINATA_GATEWAY = process.env.PINATA_GATEWAY || process.env.NEXT_PUBLIC_PINATA_GATEWAY;
+// IPFS gateways to try in order - prioritize server-side Pinata dedicated gateway
+const PINATA_GATEWAY = process.env.PINATA_GATEWAY;
 const IPFS_GATEWAYS = [
   PINATA_GATEWAY ? `${PINATA_GATEWAY}/ipfs/` : 'https://tan-deliberate-louse-99.mypinata.cloud/ipfs/',
   'https://gateway.pinata.cloud/ipfs/',
@@ -193,7 +193,7 @@ export async function GET(
     
     if (cached) {
       // Serve from cache
-      return new NextResponse(cached.data, {
+      return new NextResponse(new Uint8Array(cached.data), {
         headers: {
           'Content-Type': cached.metadata.contentType,
           'Content-Length': cached.metadata.size.toString(),
@@ -211,7 +211,7 @@ export async function GET(
     await cacheFile(cid, data, contentType, size, `ipfs://${cid}`);
 
     // Serve the file
-    return new NextResponse(data, {
+    return new NextResponse(new Uint8Array(data), {
       headers: {
         'Content-Type': contentType,
         'Content-Length': size.toString(),

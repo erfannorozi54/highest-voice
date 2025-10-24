@@ -1,7 +1,8 @@
 'use client';
 
-import { Bell, Search, Settings } from 'lucide-react';
+import { Bell, Search, Settings, Wallet } from 'lucide-react';
 import Image from 'next/image';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 
@@ -40,16 +41,61 @@ export function MobileHeader({
         </div>
 
         {/* Right side - Actions */}
-        <div className="flex items-center space-x-2">
-          {showSearch && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="p-2 text-gray-400 hover:text-white"
-            >
-              <Search className="w-5 h-5" />
-            </Button>
-          )}
+        <div className="flex items-center space-x-1">
+          {/* Connect Wallet Button */}
+          <ConnectButton.Custom>
+            {({
+              account,
+              chain,
+              openAccountModal,
+              openConnectModal,
+              authenticationStatus,
+              mounted,
+            }) => {
+              const ready = mounted && authenticationStatus !== 'loading';
+              const connected =
+                ready &&
+                account &&
+                chain &&
+                (!authenticationStatus ||
+                  authenticationStatus === 'authenticated');
+
+              return (
+                <div
+                  {...(!ready && {
+                    'aria-hidden': true,
+                    'style': {
+                      opacity: 0,
+                      pointerEvents: 'none',
+                      userSelect: 'none',
+                    },
+                  })}
+                >
+                  {!connected ? (
+                    <Button
+                      onClick={openConnectModal}
+                      variant="ghost"
+                      size="sm"
+                      className="p-2 text-primary-400 hover:text-primary-300"
+                      title="Connect Wallet"
+                    >
+                      <Wallet className="w-5 h-5" />
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={openAccountModal}
+                      variant="ghost"
+                      size="sm"
+                      className="p-2 text-green-400 hover:text-green-300"
+                      title="Wallet Connected"
+                    >
+                      <Wallet className="w-5 h-5" />
+                    </Button>
+                  )}
+                </div>
+              );
+            }}
+          </ConnectButton.Custom>
           
           {showNotifications && (
             <Button
@@ -69,14 +115,6 @@ export function MobileHeader({
               )}
             </Button>
           )}
-          
-          <Button
-            variant="ghost"
-            size="sm"
-            className="p-2 text-gray-400 hover:text-white"
-          >
-            <Settings className="w-5 h-5" />
-          </Button>
         </div>
       </div>
     </header>

@@ -3,8 +3,8 @@ import { Address } from 'viem';
 // Contract addresses by network
 export const CONTRACT_ADDRESSES = {
   31337: { // Localhost
-    highestVoice: process.env.NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT as Address || '0x5FbDB2315678afecb367f032d93F642f64180aa3',
-    keeper: process.env.NEXT_PUBLIC_KEEPER_CONTRACT as Address || '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512',
+    highestVoice: process.env.NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT as Address || '0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9',
+    keeper: process.env.NEXT_PUBLIC_KEEPER_CONTRACT as Address || '0x5FC8d32690cc91D4c39d9d3abcBD16989F875707',
   },
   11155111: { // Sepolia
     highestVoice: process.env.NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_SEPOLIA as Address || '0x',
@@ -33,7 +33,11 @@ export function getContractAddress(chainId: number, contract: 'highestVoice' | '
   if (!addresses) {
     throw new Error(`Unsupported network: ${chainId}`);
   }
-  return addresses[contract];
+  const addr = addresses[contract];
+  if (!addr || typeof addr !== 'string' || addr.length !== 42 || !addr.startsWith('0x') || addr === '0x0000000000000000000000000000000000000000' || addr === '0x') {
+    throw new Error(`Contract address not configured for network ${chainId}: ${contract}`);
+  }
+  return addr;
 }
 
 // Contract constants

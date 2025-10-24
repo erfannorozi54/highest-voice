@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback } from 'react';
 import { useReadContract, useWriteContract, useWatchContractEvent } from 'wagmi';
 import { useChainId } from 'wagmi';
 import { parseEther, formatEther } from 'viem';
@@ -13,34 +14,39 @@ export function useCurrentAuction() {
   const chainId = useChainId();
   const contractAddress = getContractAddress(chainId, 'highestVoice');
 
-  const { data: currentAuctionId } = useReadContract({
+  const { data: currentAuctionId, isLoading: auctionIdLoading } = useReadContract({
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'currentAuctionId',
+    chainId,
   });
 
-  const { data: countdownEnd } = useReadContract({
+  const { data: countdownEnd, isLoading: countdownLoading } = useReadContract({
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'getCountdownEnd',
+    chainId,
   });
 
-  const { data: minimumCollateral } = useReadContract({
+  const { data: minimumCollateral, isLoading: collateralLoading } = useReadContract({
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'minimumCollateral',
+    chainId,
   });
 
   const { data: lastWinnerPost } = useReadContract({
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'lastWinnerPost',
+    chainId,
   });
 
   const { data: lastWinnerTime } = useReadContract({
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'lastWinnerTime',
+    chainId,
   });
 
   // Calculate auction info
@@ -60,7 +66,7 @@ export function useCurrentAuction() {
 
   return {
     auctionInfo,
-    isLoading: !currentAuctionId || !countdownEnd,
+    isLoading: auctionIdLoading || countdownLoading || collateralLoading,
   };
 }
 
@@ -74,6 +80,7 @@ export function useUserStats(address?: `0x${string}`) {
     abi: HIGHEST_VOICE_ABI,
     functionName: 'getUserStats',
     args: address ? [address] : undefined,
+    chainId,
     query: {
       enabled: !!address,
     },
@@ -94,6 +101,7 @@ export function useLeaderboard() {
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'getLeaderboard',
+    chainId,
   });
 
   const leaderboard: LeaderboardEntry[] = leaderboardData 
@@ -119,6 +127,7 @@ export function useUserFunds(address?: `0x${string}`) {
     abi: HIGHEST_VOICE_ABI,
     functionName: 'getMyFundsSummary',
     account: address,
+    chainId,
     query: {
       enabled: !!address,
     },
@@ -141,6 +150,7 @@ export function useSettlementProgress(auctionId?: bigint) {
     abi: HIGHEST_VOICE_ABI,
     functionName: 'getSettlementProgress',
     args: auctionId ? [auctionId] : undefined,
+    chainId,
     query: {
       enabled: !!auctionId,
     },
@@ -260,16 +270,27 @@ export function useHighestVoiceWrite() {
 export function useHighestVoiceEvents() {
   const chainId = useChainId();
   const contractAddress = getContractAddress(chainId, 'highestVoice');
+  const isProd = process.env.NODE_ENV === 'production';
+
+  const onNewWinner = useCallback((logs: any) => {
+    console.log('New winner:', logs);
+  }, []);
+
+  const onNewCommit = useCallback((logs: any) => {
+    console.log('New commit:', logs);
+  }, []);
+
+  const onNewReveal = useCallback((logs: any) => {
+    console.log('New reveal:', logs);
+  }, []);
 
   // Watch for new winners
   useWatchContractEvent({
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     eventName: 'NewWinner',
-    onLogs(logs) {
-      console.log('New winner:', logs);
-      // You can add toast notifications or other side effects here
-    },
+    pollingInterval: isProd ? 10_000 : 4_000, // Poll every 4 seconds instead of default 1 second
+    onLogs: onNewWinner,
   });
 
   // Watch for new commits
@@ -277,9 +298,8 @@ export function useHighestVoiceEvents() {
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     eventName: 'NewCommit',
-    onLogs(logs) {
-      console.log('New commit:', logs);
-    },
+    pollingInterval: isProd ? 10_000 : 4_000,
+    onLogs: onNewCommit,
   });
 
   // Watch for new reveals
@@ -287,9 +307,8 @@ export function useHighestVoiceEvents() {
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     eventName: 'NewReveal',
-    onLogs(logs) {
-      console.log('New reveal:', logs);
-    },
+    pollingInterval: isProd ? 10_000 : 4_000,
+    onLogs: onNewReveal,
   });
 }
 
@@ -302,6 +321,7 @@ export function useLegendaryToken() {
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'getLegendaryTokenInfo',
+    chainId,
   });
 
   const legendaryData = legendaryInfo ? {
@@ -315,5 +335,35 @@ export function useLegendaryToken() {
     legendaryData,
     isLoading,
     hasLegendary: legendaryData?.tokenId && legendaryData.tokenId > 0n,
+  };
+}
+
+// Hook for winner NFT data
+export function useWinnerNFT(tokenId?: bigint) {
+  const chainId = useChainId();
+  const contractAddress = getContractAddress(chainId, 'highestVoice');
+
+  const { data: nftData, isLoading } = useReadContract({
+    address: contractAddress,
+    abi: HIGHEST_VOICE_ABI,
+    functionName: 'winnerNFTs',
+    args: tokenId ? [tokenId] : undefined,
+    chainId,
+    query: {
+      enabled: !!tokenId && tokenId > 0n,
+    },
+  });
+
+  const nft = nftData ? {
+    auctionId: nftData[0],
+    winningBid: nftData[1],
+    text: nftData[2],
+    timestamp: nftData[3],
+    tipsReceived: nftData[4],
+  } : undefined;
+
+  return {
+    nft,
+    isLoading,
   };
 }

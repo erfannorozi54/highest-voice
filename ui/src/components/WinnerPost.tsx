@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Heart, MessageCircle, Share2, Gift, Crown, Volume2, Play, Pause, Mic } from 'lucide-react';
+import { Share2, Gift, Crown, Volume2, Play, Pause, Mic } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
@@ -266,27 +266,7 @@ export function WinnerPost({
 
           {/* Action Buttons */}
           <div className="flex items-center justify-between pt-4 border-t border-white/10">
-            <div className="flex items-center space-x-6">
-              {/* Like Button */}
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-gray-400 hover:text-social-like transition-colors"
-              >
-                <Heart className="w-5 h-5 mr-2" />
-                <span className="text-sm">Like</span>
-              </Button>
-
-              {/* Comment Button */}
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-gray-400 hover:text-social-comment transition-colors"
-              >
-                <MessageCircle className="w-5 h-5 mr-2" />
-                <span className="text-sm">Comment</span>
-              </Button>
-
+            <div className="flex items-center space-x-4">
               {/* Share Button */}
               <Button
                 size="sm"
