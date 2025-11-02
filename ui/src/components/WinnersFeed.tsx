@@ -53,46 +53,7 @@ export function WinnersFeed({
 
   return (
     <div className="space-y-6">
-      {/* Feed Header */}
-      <Card variant="glass">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center space-x-2">
-              <Trophy className="w-6 h-6 text-gold-400" />
-              <span>Winners Feed</span>
-            </CardTitle>
-            
-            {/* Filter Buttons */}
-            <div className="flex items-center space-x-2">
-              <Button
-                size="sm"
-                variant={filter === 'all' ? 'primary' : 'ghost'}
-                onClick={() => setFilter('all')}
-              >
-                All
-              </Button>
-              <Button
-                size="sm"
-                variant={filter === 'recent' ? 'primary' : 'ghost'}
-                onClick={() => setFilter('recent')}
-              >
-                <Clock className="w-4 h-4 mr-1" />
-                Recent
-              </Button>
-              <Button
-                size="sm"
-                variant={filter === 'top' ? 'primary' : 'ghost'}
-                onClick={() => setFilter('top')}
-              >
-                <TrendingUp className="w-4 h-4 mr-1" />
-                Top Tipped
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-      </Card>
 
-      {/* Highest Voice Spotlight */}
       {currentWinner && (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
@@ -184,6 +145,33 @@ export function WinnersFeed({
           />
         </motion.div>
       )}
+
+      {/* Filter Buttons */}
+      <div className="flex items-center justify-center space-x-2 py-2">
+        <Button
+          size="sm"
+          variant={filter === 'all' ? 'primary' : 'ghost'}
+          onClick={() => setFilter('all')}
+        >
+          All
+        </Button>
+        <Button
+          size="sm"
+          variant={filter === 'recent' ? 'primary' : 'ghost'}
+          onClick={() => setFilter('recent')}
+        >
+          <Clock className="w-4 h-4 mr-1" />
+          Recent
+        </Button>
+        <Button
+          size="sm"
+          variant={filter === 'top' ? 'primary' : 'ghost'}
+          onClick={() => setFilter('top')}
+        >
+          <TrendingUp className="w-4 h-4 mr-1" />
+          Top Tipped
+        </Button>
+      </div>
 
       {/* Previous Winners */}
       <div className="space-y-4">

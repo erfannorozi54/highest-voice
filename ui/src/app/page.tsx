@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { Zap, Trophy, Users, TrendingUp, Wallet, Settings, Crown, Sparkles, ArrowRight, Timer } from 'lucide-react';
+import { Zap, Trophy, Users, TrendingUp, Settings, Crown, Sparkles, ArrowRight, Timer, Check } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { MobileHeader } from '@/components/MobileHeader';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
@@ -11,11 +12,15 @@ import { AuctionStatus } from '@/components/AuctionStatus';
 import { WinnersFeed } from '@/components/WinnersFeed';
 import { BidModal } from '@/components/BidModal';
 import { LegendaryHolder } from '@/components/LegendaryHolder';
+import { MyBidStatus } from '@/components/MyBidStatus';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
-import { useCurrentAuction, useUserStats, useUserFunds, useLeaderboard, useHighestVoiceEvents, useLegendaryToken } from '@/hooks/useHighestVoice';
+import { StepIndicator } from '@/components/ui/StepIndicator';
+import { ProgressBar } from '@/components/ui/ProgressBar';
+import { CountdownTimer } from '@/components/CountdownTimer';
+import { useCurrentAuction, useUserStats, useUserFunds, useLeaderboard, useHighestVoiceEvents, useLegendaryToken, useHighestVoiceWrite, useUserCommitStatus } from '@/hooks/useHighestVoice';
 import { useWinnerPostPreloader } from '@/hooks/useIPFSPreloader';
 import { formatETH, truncateAddress, formatDuration } from '@/lib/utils';
 import { cn } from '@/lib/utils';
@@ -28,12 +33,27 @@ export default function HomePage() {
   const { availableNow, lockedActive } = useUserFunds(address);
   const { leaderboard } = useLeaderboard();
   const { legendaryData, hasLegendary } = useLegendaryToken();
+  const { hasCommitted, refetch: refetchCommitStatus } = useUserCommitStatus(auctionInfo?.id, address);
 
   const [bidModalOpen, setBidModalOpen] = useState(false);
   const [bidModalMode, setBidModalMode] = useState<'commit' | 'reveal'>('commit');
   const [existingCommit, setExistingCommit] = useState<any>(null);
   const [activeTab, setActiveTab] = useState('home');
   const [currentTime, setCurrentTime] = useState(Math.floor(Date.now() / 1000));
+
+  // Track completed steps for "How it works" section
+  const getCompletedSteps = () => {
+    const steps = {
+      connectWallet: isConnected,
+      commitBid: !!(existingCommit && existingCommit.commitHash),
+      reveal: !!(existingCommit && existingCommit.revealed),
+      win: !!(stats && Number(stats.totalWins) > 0),
+    };
+    return steps;
+  };
+
+  const completedSteps = getCompletedSteps();
+  const completedCount = Object.values(completedSteps).filter(Boolean).length;
 
   // Watch for contract events
   useHighestVoiceEvents();
@@ -75,13 +95,55 @@ export default function HomePage() {
     }
   };
 
+  // Load commit data from localStorage
+  useEffect(() => {
+    if (!address || !auctionInfo) return;
+    
+    const storageKey = `commit_${auctionInfo.id}_${address}`;
+    const savedData = localStorage.getItem(storageKey);
+    
+    if (savedData) {
+      try {
+        const commitData = JSON.parse(savedData);
+        setExistingCommit(commitData);
+        console.log('Loaded commit data from localStorage:', commitData);
+      } catch (error) {
+        console.error('Failed to parse commit data:', error);
+      }
+    }
+  }, [address, auctionInfo]);
+
+  const router = useRouter();
+
+  const handleModalClose = () => {
+    setBidModalOpen(false);
+    refetchCommitStatus();
+  };
+
   const handleCommitBid = () => {
     if (!isConnected) {
       toast.error('Please connect your wallet first');
       return;
     }
-    setBidModalMode('commit');
-    setBidModalOpen(true);
+    
+    if (!auctionInfo) {
+      toast.error('Auction data not loaded');
+      return;
+    }
+
+    if (auctionInfo.phase !== 'commit') {
+      toast.error('Can only commit during commit phase');
+      return;
+    }
+
+    // Check if already committed
+    if (hasCommitted) {
+      toast.error('You have already committed a bid for this auction');
+      return;
+    }
+    
+    // Route to bid page in commit mode
+    router.push('/bid?mode=commit');
   };
 
   const handleTipWinner = () => {
@@ -135,8 +197,24 @@ export default function HomePage() {
       toast.error('Please connect your wallet first');
       return;
     }
-    setBidModalMode('reveal');
-    setBidModalOpen(true);
+    
+    if (!auctionInfo) {
+      toast.error('Auction data not loaded');
+      return;
+    }
+
+    if (auctionInfo.phase !== 'reveal') {
+      toast.error('Can only reveal during reveal phase');
+      return;
+    }
+
+    if (!hasCommitted) {
+      toast.error('You have no commit to reveal for this auction');
+      return;
+    }
+
+    // Route to bid page in reveal mode
+    router.push('/bid?mode=reveal');
   };
 
   // Add timeout for loading state - if it takes too long, show the UI anyway
@@ -173,7 +251,7 @@ export default function HomePage() {
         notificationCount={3}
       />
       
-      <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-6 pb-20 md:pb-6">
+      <main className="container mx-auto px-3 sm:px-6 lg:px-8 py-3 md:py-6 pb-20 md:pb-6">
         {/* Hero Section - Hidden on mobile */}
         <section className="text-center mb-6 hidden md:block">
           <h1 className="text-2xl md:text-3xl font-semibold text-white mb-2">
@@ -184,7 +262,7 @@ export default function HomePage() {
           </p>
         </section>
 
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6">
           {/* Mobile Layout */}
           <div className="md:hidden space-y-4">
             {/* Legendary Token Holder - Show if exists */}
@@ -194,6 +272,17 @@ export default function HomePage() {
                 holder={legendaryData.holder}
                 auctionId={legendaryData.auctionId}
                 tipAmount={legendaryData.tipAmount}
+              />
+            )}
+
+            {/* My Bid Status - Show if user is connected */}
+            {isConnected && address && auctionInfo && (
+              <MyBidStatus
+                auctionId={auctionInfo.id}
+                address={address}
+                phase={auctionInfo.phase}
+                hasCommitted={hasCommitted}
+                onRevealClick={handleRevealBid}
               />
             )}
 
@@ -207,38 +296,38 @@ export default function HomePage() {
 
             {/* Mobile Current Auction Status */}
             {auctionInfo && (
-              <Card variant="glass" className="p-5 relative overflow-hidden">
+              <Card variant="glass" className="p-3 relative overflow-hidden">
                 {/* Animated Background Effect */}
                 <div className="absolute inset-0 bg-gradient-to-br from-primary-500/10 via-transparent to-secondary-500/10 animate-pulse" />
                 
-                {/* Auction Number Badge - Eye-catching */}
+                {/* Auction Number Badge - Mobile Optimized */}
                 <motion.div 
                   initial={{ scale: 0.9, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="relative mb-4 p-4 rounded-2xl bg-gradient-to-r from-primary-500/20 via-secondary-500/20 to-accent-500/20 border border-primary-500/30"
+                  className="relative mb-2.5 p-2.5 rounded-lg bg-gradient-to-r from-primary-500/20 via-secondary-500/20 to-accent-500/20 border border-primary-500/30"
                 >
                   <div className="flex items-center justify-center space-x-2">
-                    <Trophy className="w-5 h-5 text-gold-400 animate-pulse" />
-                    <h3 className="text-2xl font-black tracking-wider bg-gradient-to-r from-gold-300 via-gold-400 to-gold-500 bg-clip-text text-transparent">
+                    <Trophy className="w-3.5 h-3.5 text-gold-400 animate-pulse" />
+                    <h3 className="text-lg font-black tracking-wide bg-gradient-to-r from-gold-300 via-gold-400 to-gold-500 bg-clip-text text-transparent">
                       AUCTION #{auctionInfo.id.toString()}
                     </h3>
-                    <Trophy className="w-5 h-5 text-gold-400 animate-pulse" />
+                    <Trophy className="w-3.5 h-3.5 text-gold-400 animate-pulse" />
                   </div>
                 </motion.div>
 
-                {/* Phase Progression - Current & Next */}
-                <div className="relative mb-4 p-3 rounded-xl bg-dark-800/50 border border-white/10">
+                {/* Phase Progression - Mobile Optimized */}
+                <div className="relative mb-2.5 p-2 rounded-lg bg-dark-800/50 border border-white/10">
                   <div className="flex items-center justify-between">
                     <div className="flex-1 text-center">
-                      <p className="text-xs text-gray-400 mb-1 font-semibold">Current Phase</p>
-                      <Badge variant="primary" size="md" className="capitalize font-black text-base shadow-glow" pulse glow>
-                        <Zap className="w-4 h-4 mr-1.5" />
+                      <p className="text-[10px] text-gray-400 mb-1 font-semibold uppercase">Current</p>
+                      <Badge variant="primary" size="sm" className="capitalize font-bold text-sm shadow-glow" pulse glow>
+                        <Zap className="w-3 h-3 mr-1" />
                         {auctionInfo.phase}
                       </Badge>
                     </div>
-                    <ArrowRight className="w-5 h-5 text-primary-400/50 mx-2" />
+                    <ArrowRight className="w-4 h-4 text-primary-400/50 mx-1" />
                     <div className="flex-1 text-center opacity-40">
-                      <p className="text-xs text-gray-500 mb-1">Next Phase</p>
+                      <p className="text-[10px] text-gray-500 mb-1 uppercase">Next</p>
                       <Badge variant="default" size="sm" className="capitalize text-xs">
                         {getNextPhase()}
                       </Badge>
@@ -246,34 +335,26 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                {/* Countdown Timer - Large and Attractive */}
+                {/* Countdown Timer - Mobile Optimized */}
                 <motion.div 
-                  className="relative mb-4 p-5 rounded-2xl bg-gradient-to-br from-dark-800/80 to-dark-900/80 border-2 border-primary-500/30 shadow-xl"
+                  className="relative mb-2.5 p-3 rounded-lg bg-gradient-to-br from-dark-800/80 to-dark-900/80 border-2 border-primary-500/30 shadow-xl"
                   animate={{ borderColor: ['rgba(59, 130, 246, 0.3)', 'rgba(139, 92, 246, 0.3)', 'rgba(59, 130, 246, 0.3)'] }}
                   transition={{ duration: 2, repeat: Infinity }}
                 >
-                  <div className="absolute inset-0 bg-gradient-to-r from-primary-500/5 to-secondary-500/5 rounded-2xl" />
+                  <div className="absolute inset-0 bg-gradient-to-r from-primary-500/5 to-secondary-500/5 rounded-xl" />
                   <div className="relative">
                     <div className="flex items-center justify-center mb-2">
-                      <Timer className="w-5 h-5 text-primary-400 mr-2 animate-spin" style={{ animationDuration: '3s' }} />
-                      <span className="text-xs font-bold text-gray-400 tracking-widest uppercase">Time Remaining</span>
+                      <Timer className="w-4 h-4 text-primary-400 mr-1.5 animate-spin" style={{ animationDuration: '3s' }} />
+                      <span className="text-[10px] font-bold text-gray-400 tracking-widest uppercase">Time Remaining</span>
                     </div>
-                    <div className="text-center">
-                      <motion.div 
-                        className="text-4xl font-black font-mono bg-gradient-to-r from-primary-300 via-secondary-300 to-accent-300 bg-clip-text text-transparent"
-                        animate={{ scale: [1, 1.02, 1] }}
-                        transition={{ duration: 1, repeat: Infinity }}
-                      >
-                        {formatDuration(getRemainingTime())}
-                      </motion.div>
-                    </div>
+                    <CountdownTimer seconds={getRemainingTime()} size="sm" />
                   </div>
                 </motion.div>
                 
                 {/* Progress Bar */}
-                <div className="w-full bg-dark-700 rounded-full h-2.5 mb-4 overflow-hidden">
+                <div className="w-full bg-dark-700 rounded-full h-2.5 mb-2.5 overflow-hidden">
                   <motion.div 
-                    className="h-2.5 rounded-full bg-gradient-to-r from-primary-500 via-secondary-500 to-accent-500 shadow-glow"
+                    className="h-2 rounded-full bg-gradient-to-r from-primary-500 via-secondary-500 to-accent-500 shadow-glow"
                     initial={{ width: 0 }}
                     animate={{ 
                       width: auctionInfo.phase === 'commit' ? '33%' : 
@@ -285,11 +366,11 @@ export default function HomePage() {
 
                 <Button 
                   onClick={auctionInfo.phase === 'commit' ? handleCommitBid : handleRevealBid}
-                  className="w-full bg-gradient-to-r from-primary-600 to-secondary-600 hover:from-primary-700 hover:to-secondary-700 text-white shadow-lg"
-                  size="md"
+                  className="w-full bg-gradient-to-r from-primary-600 to-secondary-600 hover:from-primary-700 hover:to-secondary-700 text-white shadow-lg touch-manipulation"
+                  size="lg"
                   glow
                 >
-                  <Zap className="w-4 h-4 mr-2" />
+                  <Zap className="w-5 h-5 mr-2" />
                   {auctionInfo.phase === 'commit' ? 'Submit Voice' : 'Reveal Bid'}
                 </Button>
               </Card>
@@ -298,19 +379,106 @@ export default function HomePage() {
 
           {/* Desktop Layout */}
           <div className="hidden md:grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left Sidebar - Navigation & Quick Actions */}
-            <div className="lg:col-span-3 space-y-4">
-              {/* User Profile Card */}
-              {isConnected ? (
-                <Card variant="glass" className="p-4">
-                  <div className="flex items-center space-x-3 mb-4">
-                    <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center">
-                      <span className="text-white font-medium text-sm">
+            {/* Left Sidebar - How It Works + User Profile */}
+            <div className="lg:col-span-3">
+              {/* Sticky Container for Sidebar */}
+              <div className="sticky top-4 space-y-4">
+                {/* How It Works - Compact */}
+                <Card variant="glass" className="p-3 border-2 border-primary-500/20" hover={false}>
+                  <div className="space-y-3">
+                    {/* Header with Progress - Compact */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <h3 className="text-base font-semibold text-white">How it works</h3>
+                        <Badge 
+                          variant={completedCount === 4 ? 'success' : 'primary'} 
+                          size="sm"
+                          className="font-bold text-xs"
+                        >
+                          {completedCount}/4
+                        </Badge>
+                      </div>
+                    </div>
+                    
+                    {/* Progress Bar - Compact */}
+                    <ProgressBar 
+                      value={completedCount} 
+                      max={4}
+                      variant={completedCount === 4 ? 'success' : 'primary'}
+                      size="sm"
+                    />
+                    
+                    {/* Steps - Compact */}
+                    <div className="space-y-2">
+                      <StepIndicator
+                        number={1}
+                        title="Connect Wallet"
+                        description="Connect your Web3 wallet to get started"
+                        completed={completedSteps.connectWallet}
+                        completedMessage="✓ Wallet connected successfully"
+                      />
+                      
+                      <StepIndicator
+                        number={2}
+                        title="Commit Bid"
+                        description="Submit sealed bid with your message & media"
+                        completed={completedSteps.commitBid}
+                        locked={!completedSteps.connectWallet}
+                        completedMessage="✓ Bid committed successfully"
+                      />
+                      
+                      <StepIndicator
+                        number={3}
+                        title="Reveal"
+                        description="Reveal your bid during reveal phase"
+                        completed={completedSteps.reveal}
+                        locked={!completedSteps.commitBid}
+                        completedMessage="✓ Bid revealed successfully"
+                      />
+                      
+                      <StepIndicator
+                        number={4}
+                        title="Win"
+                        description="Highest bid wins, gets featured & earns NFT"
+                        completed={completedSteps.win}
+                        locked={!completedSteps.reveal}
+                        completedMessage={`🏆 You've won ${stats ? Number(stats.totalWins) : 0} auction${Number(stats?.totalWins) !== 1 ? 's' : ''}!`}
+                        icon={Trophy}
+                        variant="gold"
+                      />
+                    </div>
+
+                    {/* Action Button - Compact */}
+                    {auctionInfo && !completedSteps.win && (
+                      <Button 
+                        onClick={auctionInfo.phase === 'commit' ? handleCommitBid : handleRevealBid}
+                        variant="cyber"
+                        size="sm"
+                        disabled={!completedSteps.connectWallet}
+                        glow
+                        className="w-full"
+                      >
+                        <Zap className="w-3 h-3 mr-2" />
+                        {!completedSteps.connectWallet && 'Connect Wallet'}
+                        {completedSteps.connectWallet && !completedSteps.commitBid && auctionInfo.phase === 'commit' && 'Commit Bid'}
+                        {completedSteps.commitBid && !completedSteps.reveal && auctionInfo.phase === 'reveal' && 'Reveal Bid'}
+                        {completedSteps.connectWallet && auctionInfo.phase !== 'commit' && auctionInfo.phase !== 'reveal' && 'Waiting...'}
+                      </Button>
+                    )}
+                  </div>
+                </Card>
+
+                {/* User Profile Card - Inside Sticky Container */}
+                {isConnected && (
+                  <Card variant="glass" className="p-3">
+                  <div className="flex items-center space-x-2 mb-3">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center">
+                      <span className="text-white font-medium text-xs">
                         {address?.slice(2, 4).toUpperCase()}
                       </span>
                     </div>
                     <div>
-                      <p className="font-semibold text-white">
+                      <p className="text-sm font-semibold text-white">
                         {truncateAddress(address || '')}
                       </p>
                       <p className="text-xs text-gray-400">Connected</p>
@@ -318,59 +486,24 @@ export default function HomePage() {
                   </div>
                   
                   {stats && (
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div className="p-2 rounded bg-gray-800/50">
-                        <p className="text-sm font-medium text-white">{stats.totalWins.toString()}</p>
-                        <p className="text-xs text-gray-500">Wins</p>
+                    <div className="grid grid-cols-3 gap-1.5 text-center">
+                      <div className="p-1.5 rounded bg-gray-800/50">
+                        <p className="text-xs font-medium text-white">{Number(stats.totalWins || 0)}</p>
+                        <p className="text-[10px] text-gray-500">Wins</p>
                       </div>
-                      <div className="p-2 rounded bg-gray-800/50">
-                        <p className="text-sm font-medium text-white">{stats.currentStreak.toString()}</p>
-                        <p className="text-xs text-gray-500">Streak</p>
+                      <div className="p-1.5 rounded bg-gray-800/50">
+                        <p className="text-xs font-medium text-white">{Number(stats.currentStreak || 0)}</p>
+                        <p className="text-[10px] text-gray-500">Streak</p>
                       </div>
-                      <div className="p-2 rounded bg-gray-800/50">
-                        <p className="text-sm font-medium text-white">{stats.totalParticipations.toString()}</p>
-                        <p className="text-xs text-gray-500">Posts</p>
+                      <div className="p-1.5 rounded bg-gray-800/50">
+                        <p className="text-xs font-medium text-white">{Number(stats.totalParticipations || 0)}</p>
+                        <p className="text-[10px] text-gray-500">Posts</p>
                       </div>
                     </div>
                   )}
-                </Card>
-              ) : (
-                <Card variant="glass" className="p-4 text-center">
-                  <Wallet className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                  <Button size="sm" variant="primary" className="w-full">
-                    Connect Wallet
-                  </Button>
-                </Card>
-              )}
-
-              {/* Quick Actions */}
-              <Card variant="glass" className="p-4">
-                <h3 className="font-medium text-white text-sm mb-3">Actions</h3>
-                <div className="space-y-2">
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="w-full justify-start text-gray-400 hover:text-white"
-                    onClick={handleCommitBid}
-                  >
-                    Submit Voice
-                  </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="w-full justify-start text-gray-500 hover:text-gray-300"
-                  >
-                    Leaderboard
-                  </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="w-full justify-start text-gray-500 hover:text-gray-300"
-                  >
-                    Explore
-                  </Button>
-                </div>
-              </Card>
+                  </Card>
+                )}
+              </div>
             </div>
 
             {/* Main Feed - Winner Posts First */}
@@ -385,6 +518,17 @@ export default function HomePage() {
                 />
               )}
 
+              {/* My Bid Status - Show if user is connected */}
+              {isConnected && address && auctionInfo && (
+                <MyBidStatus
+                  auctionId={auctionInfo.id}
+                  address={address}
+                  phase={auctionInfo.phase}
+                  hasCommitted={hasCommitted}
+                  onRevealClick={handleRevealBid}
+                />
+              )}
+
               {/* Winners Feed - Top Priority */}
               <WinnersFeed
                 currentWinner={currentWinnerData}
@@ -392,58 +536,6 @@ export default function HomePage() {
                 onTipWinner={handleTipWinner}
                 onSharePost={(auctionId) => console.log('Share post:', auctionId)}
               />
-
-              {/* Quick Guide - Secondary */}
-              <Card variant="glass" className="p-4">
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-lg font-medium text-white mb-2">How it works</h3>
-                    <p className="text-sm text-gray-500">
-                      Submit bids, reveal to compete, win NFT certificates
-                    </p>
-                  </div>
-                  
-                  <div className="space-y-3">
-                    <div className="flex items-start space-x-3">
-                      <div className="w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <span className="text-xs font-medium text-white">1</span>
-                      </div>
-                      <div>
-                        <h4 className="font-medium text-white text-sm">Commit</h4>
-                        <p className="text-xs text-gray-500">Submit sealed bid with voice</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start space-x-3">
-                      <div className="w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <span className="text-xs font-medium text-white">2</span>
-                      </div>
-                      <div>
-                        <h4 className="font-medium text-white text-sm">Reveal</h4>
-                        <p className="text-xs text-gray-500">Reveal bid to compete</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start space-x-3">
-                      <div className="w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <span className="text-xs font-medium text-white">3</span>
-                      </div>
-                      <div>
-                        <h4 className="font-medium text-white text-sm">Win</h4>
-                        <p className="text-xs text-gray-500">Get featured, earn NFT</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {auctionInfo && (
-                    <Button 
-                      onClick={auctionInfo.phase === 'commit' ? handleCommitBid : handleRevealBid}
-                      className="w-full bg-primary-600 hover:bg-primary-700 text-white"
-                      size="sm"
-                    >
-                      {auctionInfo.phase === 'commit' ? 'Start Bidding' : 'Reveal Bid'}
-                    </Button>
-                  )}
-                </div>
-              </Card>
             </div>
 
             {/* Right Sidebar - Quick Access */}
@@ -484,14 +576,8 @@ export default function HomePage() {
                       animate={{ borderColor: ['rgba(59, 130, 246, 0.3)', 'rgba(139, 92, 246, 0.3)', 'rgba(59, 130, 246, 0.3)'] }}
                       transition={{ duration: 2, repeat: Infinity }}
                     >
-                      <p className="text-xs text-gray-500 mb-2 uppercase tracking-wider">Time Remaining</p>
-                      <motion.div 
-                        className="text-3xl font-black font-mono bg-gradient-to-r from-primary-300 to-secondary-300 bg-clip-text text-transparent"
-                        animate={{ scale: [1, 1.02, 1] }}
-                        transition={{ duration: 1, repeat: Infinity }}
-                      >
-                        {formatDuration(getRemainingTime())}
-                      </motion.div>
+                      <p className="text-xs text-gray-500 mb-3 uppercase tracking-wider">Time Remaining</p>
+                      <CountdownTimer seconds={getRemainingTime()} size="md" />
                     </motion.div>
                     
                     {/* Progress Bar */}
@@ -573,7 +659,7 @@ export default function HomePage() {
         {auctionInfo && (
           <BidModal
             isOpen={bidModalOpen}
-            onClose={() => setBidModalOpen(false)}
+            onClose={handleModalClose}
             mode={bidModalMode}
             auctionInfo={auctionInfo}
             existingCommit={existingCommit}

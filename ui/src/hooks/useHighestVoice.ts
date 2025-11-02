@@ -86,8 +86,19 @@ export function useUserStats(address?: `0x${string}`) {
     },
   });
 
+  const stats = userStats ? {
+    totalWins: userStats[0],
+    totalSpent: userStats[1],
+    highestBid: userStats[2],
+    totalParticipations: userStats[3],
+    totalTipsReceived: userStats[4],
+    currentStreak: userStats[5],
+    bestStreak: userStats[6],
+    winRate: userStats[7],
+  } : undefined;
+
   return {
-    stats: userStats as UserStats | undefined,
+    stats,
     isLoading,
   };
 }
@@ -166,6 +177,55 @@ export function useSettlementProgress(auctionId?: bigint) {
   return {
     progress,
     isLoading,
+  };
+}
+
+// Hook to check if user has committed in current auction
+export function useUserCommitStatus(auctionId?: bigint, userAddress?: `0x${string}`) {
+  const chainId = useChainId();
+  const contractAddress = getContractAddress(chainId, 'highestVoice');
+
+  const { data: hasCommitted, isLoading, refetch } = useReadContract({
+    address: contractAddress,
+    abi: HIGHEST_VOICE_ABI,
+    functionName: 'hasUserCommitted',
+    args: auctionId && userAddress ? [auctionId, userAddress] : undefined,
+    chainId,
+    query: {
+      enabled: !!auctionId && !!userAddress,
+    },
+  });
+
+  return {
+    hasCommitted: hasCommitted || false,
+    isLoading,
+    refetch,
+  };
+}
+
+// Hook to get user's bid details including commit hash
+export function useUserBidDetails(auctionId?: bigint) {
+  const chainId = useChainId();
+  const contractAddress = getContractAddress(chainId, 'highestVoice');
+
+  const { data: bidData, isLoading, refetch } = useReadContract({
+    address: contractAddress,
+    abi: HIGHEST_VOICE_ABI,
+    functionName: 'getMyBid',
+    args: auctionId ? [auctionId] : undefined,
+    chainId,
+    query: {
+      enabled: !!auctionId,
+    },
+  });
+
+  return {
+    commitHash: bidData?.[0] as `0x${string}` | undefined,
+    collateral: bidData?.[1],
+    revealed: bidData?.[2],
+    revealedBid: bidData?.[3],
+    isLoading,
+    refetch,
   };
 }
 
@@ -337,6 +397,9 @@ export function useLegendaryToken() {
     hasLegendary: legendaryData?.tokenId && legendaryData.tokenId > 0n,
   };
 }
+
+// Alias for compatibility
+export const useAuctionInfo = useCurrentAuction;
 
 // Hook for winner NFT data
 export function useWinnerNFT(tokenId?: bigint) {

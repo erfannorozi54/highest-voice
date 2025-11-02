@@ -9,7 +9,7 @@ const createConfig = () =>
     projectId: process.env.NEXT_PUBLIC_PROJECT_ID || '03b8b4e5bda44ee68341d1439233f49b',
     chains: CHAINS,
     transports: {
-      [hardhat.id]: webSocket('ws://127.0.0.1:8545'),
+      [hardhat.id]: http('http://127.0.0.1:8545'),
       [sepolia.id]: http('/api/rpc?chainId=11155111'),
       [mainnet.id]: http('/api/rpc?chainId=1'),
     },

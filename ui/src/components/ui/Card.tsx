@@ -4,7 +4,7 @@ import { forwardRef } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
-interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+interface CardProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 'onAnimationStart' | 'onDrag' | 'onDragEnd' | 'onDragStart'> {
   variant?: 'default' | 'glass' | 'neon' | 'luxury' | 'cyber';
   hover?: boolean;
   glow?: boolean;
@@ -33,16 +33,30 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
 
     const glowClasses = glow ? 'shadow-glow' : '';
 
-    const CardComponent = animate ? motion.div : 'div';
-    const animationProps = animate ? {
-      initial: { opacity: 0, y: 20 },
-      animate: { opacity: 1, y: 0 },
-      transition: { duration: 0.3 },
-      whileHover: hover ? { y: -2 } : undefined,
-    } : {};
+    if (animate) {
+      return (
+        <motion.div
+          ref={ref}
+          className={cn(
+            baseClasses,
+            variants[variant],
+            hoverClasses,
+            glowClasses,
+            className
+          )}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          whileHover={hover ? { y: -2 } : undefined}
+          {...props}
+        >
+          {children}
+        </motion.div>
+      );
+    }
 
     return (
-      <CardComponent
+      <div
         ref={ref}
         className={cn(
           baseClasses,
@@ -51,11 +65,10 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
           glowClasses,
           className
         )}
-        {...animationProps}
         {...props}
       >
         {children}
-      </CardComponent>
+      </div>
     );
   }
 );

@@ -17,6 +17,7 @@ export interface UserStats {
   totalTipsReceived: bigint;
   currentStreak: bigint;
   bestStreak: bigint;
+  winRate: bigint;
 }
 
 export interface WinnerNFT {

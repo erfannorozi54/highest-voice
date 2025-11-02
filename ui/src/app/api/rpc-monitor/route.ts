@@ -66,8 +66,8 @@ async function verifyDeployerSignature(
         params: [
           {
             to: contractAddress,
-            // DEPLOYER() function selector: 0xd5f39488
-            data: '0xd5f39488',
+            // DEPLOYER() function selector: 0xc1b8411a
+            data: '0xc1b8411a',
           },
           'latest',
         ],

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useChainId } from 'wagmi';
@@ -17,8 +17,13 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ className }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const { isConnected } = useAccount();
   const chainId = useChainId();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const currentNetwork = Object.values(NETWORKS).find(network => network.chainId === chainId);
 
@@ -89,7 +94,7 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
           {/* Network Badge & Connect Button */}
           <div className="flex items-center space-x-3">
             {/* Network Status */}
-            {isConnected && currentNetwork && (
+            {mounted && isConnected && currentNetwork && (
               <Badge
                 variant={chainId === 1 ? 'success' : chainId === 11155111 ? 'warning' : 'primary'}
                 size="sm"
@@ -100,7 +105,12 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
             )}
 
             {/* Connect Button */}
-            <ConnectButton.Custom>
+            {!mounted ? (
+              <Button variant="cyber" size="md" disabled>
+                Connect Wallet
+              </Button>
+            ) : (
+              <ConnectButton.Custom>
               {({
                 account,
                 chain,
@@ -130,6 +140,18 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
                     })}
                   >
                     {(() => {
+                      if (!ready) {
+                        return (
+                          <Button
+                            variant="cyber"
+                            size="md"
+                            disabled
+                          >
+                            Connect Wallet
+                          </Button>
+                        );
+                      }
+
                       if (!connected) {
                         return (
                           <Button
@@ -205,6 +227,7 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
                 );
               }}
             </ConnectButton.Custom>
+            )}
 
             {/* Mobile Menu Button */}
             <button
@@ -231,7 +254,12 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
             <div className="space-y-2">
               {/* Connect Wallet Button - Mobile */}
               <div className="px-4 pb-3 border-b border-white/10">
-                <ConnectButton.Custom>
+                {!mounted ? (
+                  <Button variant="cyber" size="md" className="w-full" disabled>
+                    Connect Wallet
+                  </Button>
+                ) : (
+                  <ConnectButton.Custom>
                   {({
                     account,
                     chain,
@@ -261,6 +289,19 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
                         })}
                       >
                         {(() => {
+                          if (!ready) {
+                            return (
+                              <Button
+                                variant="cyber"
+                                size="md"
+                                className="w-full"
+                                disabled
+                              >
+                                Connect Wallet
+                              </Button>
+                            );
+                          }
+
                           if (!connected) {
                             return (
                               <Button
@@ -337,6 +378,7 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
                     );
                   }}
                 </ConnectButton.Custom>
+                )}
               </div>
 
               {/* Navigation Links */}

@@ -66,7 +66,7 @@ const Modal: React.FC<ModalProps> = ({
         </Transition.Child>
 
         <div className="fixed inset-0 overflow-y-auto">
-          <div className="flex min-h-full items-center justify-center p-4 text-center">
+          <div className="flex min-h-full items-center justify-center p-2 sm:p-4 text-center">
             <Transition.Child
               as={Fragment}
               enter="ease-out duration-300"
@@ -83,25 +83,25 @@ const Modal: React.FC<ModalProps> = ({
                 exit={{ opacity: 0, scale: 0.9, y: 20 }}
                 transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                 className={cn(
-                  'w-full transform overflow-hidden rounded-2xl glass border border-white/10 p-6 text-left align-middle shadow-2xl transition-all',
+                  'w-full transform overflow-hidden rounded-2xl glass border border-white/10 p-4 sm:p-6 text-left align-middle shadow-2xl transition-all max-h-[95vh] flex flex-col',
                   sizeClasses[size],
                   className
                 )}
               >
                 {/* Header */}
                 {(title || showCloseButton) && (
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center justify-between mb-3 flex-shrink-0">
                     <div>
                       {title && (
                         <Dialog.Title
                           as="h3"
-                          className="text-lg font-semibold leading-6 text-white"
+                          className="text-base font-semibold leading-tight text-white"
                         >
                           {title}
                         </Dialog.Title>
                       )}
                       {description && (
-                        <p className="mt-1 text-sm text-gray-400">
+                        <p className="mt-0.5 text-xs text-gray-400">
                           {description}
                         </p>
                       )}
@@ -119,8 +119,14 @@ const Modal: React.FC<ModalProps> = ({
                   </div>
                 )}
 
-                {/* Content */}
-                <div className="text-white">
+                {/* Content - No visible scrollbar */}
+                <div 
+                  className="text-white flex-1 -mx-4 sm:-mx-6 px-4 sm:px-6 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden"
+                  style={{
+                    scrollbarWidth: 'none',
+                    msOverflowStyle: 'none',
+                  }}
+                >
                   {children}
                 </div>
               </Dialog.Panel>

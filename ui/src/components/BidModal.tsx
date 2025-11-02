@@ -3,13 +3,13 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAccount, useSignMessage } from 'wagmi';
-import { Hash, Eye, EyeOff, Upload, AlertCircle, Info } from 'lucide-react';
+import { Hash, Upload, AlertCircle, Info, Check, AlertTriangle, Download, FileUp } from 'lucide-react';
 import { Modal } from './ui/Modal';
 import { Input } from './ui/Input';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
-import { Card, CardContent } from './ui/Card';
-import { useHighestVoiceWrite } from '@/hooks/useHighestVoice';
+import { Card } from './ui/Card';
+import { useHighestVoiceWrite, useUserBidDetails } from '@/hooks/useHighestVoice';
 import { generateSalt, generateCommitHash, validateETHAmount, validateText, validateCID, formatETH } from '@/lib/utils';
 import { BidCommitData, AuctionInfo } from '@/types';
 import { parseEther } from 'viem';
@@ -26,8 +26,52 @@ interface BidModalProps {
     imageCid: string;
     voiceCid: string;
     salt: string;
+    collateral?: string;
   };
 }
+
+// Helper function to calculate remaining amount
+const calculateRemainingAmount = (bidAmount: string, collateral: string): bigint | null => {
+  try {
+    const bidWei = parseEther(bidAmount);
+    const collateralWei = parseEther(collateral);
+    const remaining = bidWei - collateralWei;
+    return remaining > BigInt(0) ? remaining : null;
+  } catch {
+    return null;
+  }
+};
+
+// Reusable Warning Component
+const CommitWarningBox: React.FC<{ onDownload: () => void }> = ({ onDownload }) => (
+  <div className="p-2 bg-orange-500/10 border border-orange-500/20 rounded space-y-1.5">
+    <div>
+      <p className="text-xs text-orange-300 font-semibold mb-1">
+        ⚠️ You need the salt to reveal your bid
+      </p>
+      <p className="text-xs text-gray-400">
+        All key data—bid amount, text/image/voice CID, salt, and remaining balance—are stored in this browser. For safety, still save this file or write the values down.
+      </p>
+    </div>
+    
+    <div className="p-1.5 bg-blue-500/10 border border-blue-500/20 rounded">
+      <p className="text-[10px] leading-tight text-blue-300">
+        💡 <span className="font-semibold">Tip:</span> Save the remaining balance to use as the exact amount during reveal. Any overpayment is recoverable.
+      </p>
+    </div>
+    
+    {/* Backup Button */}
+    <Button
+      onClick={onDownload}
+      variant="outline"
+      size="sm"
+      className="w-full bg-green-500/10 border-green-500/30 hover:bg-green-500/20"
+    >
+      <Download className="w-3 h-3 mr-2" />
+      Download Backup File
+    </Button>
+  </div>
+);
 
 const BidModal: React.FC<BidModalProps> = ({
   isOpen,
@@ -39,6 +83,7 @@ const BidModal: React.FC<BidModalProps> = ({
   const { address } = useAccount();
   const { commitBid, revealBid, isPending } = useHighestVoiceWrite();
   const { signMessageAsync } = useSignMessage();
+  const { commitHash: onChainCommitHash } = useUserBidDetails(auctionInfo.id);
 
   // Form state
   const [bidAmount, setBidAmount] = useState(existingCommit?.bidAmount || '');
@@ -51,10 +96,143 @@ const BidModal: React.FC<BidModalProps> = ({
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingAudio, setUploadingAudio] = useState(false);
 
-  // UI state
+  // UI state - Start collapsed to save space
   const [showCommitDetails, setShowCommitDetails] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [commitHash, setCommitHash] = useState<`0x${string}` | null>(null);
+  const [copiedItem, setCopiedItem] = useState<'salt' | 'hash' | null>(null);
+  const [uploadedData, setUploadedData] = useState<any>(null);
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [hashValidation, setHashValidation] = useState<'unknown' | 'valid' | 'invalid'>('unknown');
+
+  // Auto-calculate remaining amount for reveal mode
+  useEffect(() => {
+    if (mode === 'reveal' && existingCommit?.bidAmount && existingCommit?.collateral) {
+      const remaining = calculateRemainingAmount(existingCommit.bidAmount, existingCommit.collateral);
+      if (remaining) {
+        setAdditionalCollateral(formatETH(remaining));
+      }
+    }
+  }, [mode, existingCommit]);
+
+  // Validate hash when in reveal mode and data changes
+  useEffect(() => {
+    if (mode === 'reveal' && onChainCommitHash && bidAmount && salt) {
+      try {
+        const calculatedHash = generateCommitHash({
+          bidAmount: parseEther(bidAmount),
+          text,
+          imageCid,
+          voiceCid,
+          salt: `0x${salt}` as `0x${string}`
+        });
+        
+        if (calculatedHash === onChainCommitHash) {
+          setHashValidation('valid');
+        } else {
+          setHashValidation('invalid');
+        }
+      } catch (error) {
+        setHashValidation('invalid');
+      }
+    } else if (mode === 'reveal') {
+      setHashValidation('unknown');
+    }
+  }, [mode, bidAmount, text, imageCid, voiceCid, salt, onChainCommitHash]);
+
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (isOpen) {
+      // Save current scroll position
+      const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+      document.body.style.overflow = 'hidden';
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    } else {
+      // Restore scroll
+      document.body.style.overflow = '';
+      document.body.style.paddingRight = '';
+    }
+
+    return () => {
+      document.body.style.overflow = '';
+      document.body.style.paddingRight = '';
+    };
+  }, [isOpen]);
+
+  // Download reveal data as JSON file
+  const downloadRevealData = () => {
+    const revealData = {
+      auctionId: auctionInfo.id.toString(),
+      address,
+      bidAmount,
+      text,
+      imageCid,
+      voiceCid,
+      salt,
+      collateral,
+      commitHash,
+      timestamp: Date.now(),
+      note: "HighestVoice Reveal Data - Keep this file safe! You'll need it to reveal your bid.",
+    };
+
+    const blob = new Blob([JSON.stringify(revealData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `highestvoice-reveal-auction${auctionInfo.id}-${address?.slice(0, 8)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Reveal data downloaded! Keep this file safe.');
+  };
+
+  // Upload and restore reveal data from JSON file
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string);
+        
+        // Validate data structure
+        if (!data.bidAmount || !data.salt || !data.text) {
+          toast.error('Invalid reveal data file');
+          return;
+        }
+
+        // Check if auction ID matches
+        if (data.auctionId !== auctionInfo.id.toString()) {
+          toast.error(`This file is for auction #${data.auctionId}, but current auction is #${auctionInfo.id}`);
+          return;
+        }
+
+        // Load data into form
+        setBidAmount(data.bidAmount || '');
+        setText(data.text || '');
+        setImageCid(data.imageCid || '');
+        setVoiceCid(data.voiceCid || '');
+        setSalt(data.salt || '');
+        
+        // Calculate additional collateral
+        if (data.bidAmount && data.collateral) {
+          const remaining = calculateRemainingAmount(data.bidAmount, data.collateral);
+          if (remaining) {
+            setAdditionalCollateral(formatETH(remaining));
+          }
+        }
+
+        setUploadedData(data);
+        toast.success('Reveal data loaded successfully!');
+      } catch (error) {
+        toast.error('Failed to parse reveal data file');
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = ''; // Reset input
+  };
 
   const uploadToIPFS = async (file: File, type: 'image' | 'audio') => {
     if (!address) {
@@ -164,11 +342,15 @@ const BidModal: React.FC<BidModalProps> = ({
       } else {
         const bidAmountWei = parseEther(bidAmount);
         const collateralWei = parseEther(collateral);
-        if (collateralWei < bidAmountWei) {
-          newErrors.collateral = 'Collateral must be at least equal to bid amount';
-        }
+        
+        // Collateral can be less than bid amount - user pays remaining in reveal phase
         if (collateralWei < auctionInfo.minimumCollateral) {
           newErrors.collateral = `Collateral must be at least ${formatETH(auctionInfo.minimumCollateral)} ETH`;
+        }
+        
+        // Warning if collateral is less than bid (user will need to pay more during reveal)
+        if (collateralWei < bidAmountWei) {
+          // This is valid, just show info in the UI
         }
       }
     }
@@ -187,6 +369,12 @@ const BidModal: React.FC<BidModalProps> = ({
   const handleSubmit = async () => {
     if (!validateForm()) return;
 
+    // Check wallet connection
+    if (!address) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+
     try {
       if (mode === 'commit') {
         if (!commitHash) {
@@ -194,36 +382,145 @@ const BidModal: React.FC<BidModalProps> = ({
           return;
         }
         
-        await commitBid(commitHash, collateral);
+        console.log('Initiating commit bid transaction...', { commitHash, collateral });
         
-        // Save commit details to localStorage for reveal phase
-        localStorage.setItem(`commit_${auctionInfo.id}_${address}`, JSON.stringify({
-          bidAmount,
-          text,
-          imageCid,
-          voiceCid,
-          salt,
-          commitHash,
-        }));
+        // Show pending toast
+        const pendingToast = toast.loading('Please confirm the transaction in your wallet...');
         
-        toast.success('Bid committed successfully!');
+        try {
+          // Call commitBid and wait for transaction
+          const txHash = await commitBid(commitHash, collateral);
+          console.log('Transaction sent:', txHash);
+          
+          // Update toast to show waiting for confirmation
+          toast.loading('Waiting for transaction confirmation...', { id: pendingToast });
+          
+          // Save commit details to localStorage for reveal phase
+          const revealData = {
+            bidAmount,
+            text,
+            imageCid,
+            voiceCid,
+            salt,
+            commitHash,
+            collateral, // Save collateral to calculate remaining amount
+          };
+          localStorage.setItem(`commit_${auctionInfo.id}_${address}`, JSON.stringify(revealData));
+          
+          // Dismiss pending toast
+          toast.dismiss(pendingToast);
+          
+          toast.success(
+            <div>
+              <p className="font-semibold">✅ Bid committed successfully!</p>
+              <p className="text-xs mt-1">📝 All reveal data saved to browser</p>
+            </div>,
+            { duration: 4000 }
+          );
+          
+          // Show confirmation modal instead of closing
+          setShowConfirmation(true);
+          return; // Don't close yet
+        } catch (txError) {
+          toast.dismiss(pendingToast);
+          throw txError; // Re-throw to be caught by outer catch
+        }
       } else {
-        await revealBid(
-          bidAmount,
-          text,
-          imageCid,
-          voiceCid,
-          `0x${salt}` as `0x${string}`,
-          additionalCollateral || undefined
-        );
+        console.log('Initiating reveal bid transaction...', { bidAmount, text, salt, additionalCollateral });
         
-        toast.success('Bid revealed successfully!');
+        // Show pending toast for reveal
+        const pendingToast = toast.loading('Please confirm the transaction in your wallet...');
+        
+        try {
+          const txHash = await revealBid(
+            bidAmount,
+            text,
+            imageCid,
+            voiceCid,
+            `0x${salt}` as `0x${string}`,
+            additionalCollateral || undefined
+          );
+          console.log('Transaction sent:', txHash);
+          
+          // Update toast to show waiting for confirmation
+          toast.loading('Waiting for transaction confirmation...', { id: pendingToast });
+          
+          toast.dismiss(pendingToast);
+          
+          toast.success(
+            <div>
+              <p className="font-semibold">✅ Bid revealed successfully!</p>
+              <p className="text-xs mt-1">🎯 You're now competing in this auction</p>
+            </div>,
+            { duration: 4000 }
+          );
+        } catch (txError) {
+          toast.dismiss(pendingToast);
+          throw txError; // Re-throw to be caught by outer catch
+        }
       }
       
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Transaction failed:', error);
-      toast.error('Transaction failed. Please try again.');
+      
+      // Better error messages
+      const errorMessage = error?.message || error?.toString() || '';
+      
+      // Handle user rejection
+      if (errorMessage.includes('User rejected') || errorMessage.includes('user rejected') || 
+          errorMessage.includes('User denied') || errorMessage.includes('user denied')) {
+        toast.error('Transaction was rejected');
+        return;
+      }
+      
+      // Handle insufficient funds
+      if (errorMessage.includes('insufficient funds') || errorMessage.includes('exceeds balance')) {
+        toast.error(
+          <div>
+            <p className="font-semibold">❌ Insufficient Funds</p>
+            <p className="text-xs mt-1">You don't have enough ETH for this transaction</p>
+          </div>,
+          { duration: 5000 }
+        );
+        return;
+      }
+      
+      if (mode === 'reveal') {
+        if (errorMessage.includes('InvalidReveal') || errorMessage.includes('does not match')) {
+          toast.error(
+            <div>
+              <p className="font-semibold">❌ Reveal Failed: Hash Mismatch</p>
+              <p className="text-xs mt-1">The provided data doesn't match your commit. Double-check all fields, especially the salt.</p>
+            </div>,
+            { duration: 6000 }
+          );
+        } else if (errorMessage.includes('NoCommit')) {
+          toast.error(
+            <div>
+              <p className="font-semibold">❌ No Commit Found</p>
+              <p className="text-xs mt-1">No commit was found for this address in this auction.</p>
+            </div>,
+            { duration: 5000 }
+          );
+        } else {
+          toast.error(
+            <div>
+              <p className="font-semibold">❌ Transaction Failed</p>
+              <p className="text-xs mt-1">{errorMessage.slice(0, 100)}</p>
+            </div>,
+            { duration: 5000 }
+          );
+        }
+      } else {
+        toast.error(
+          <div>
+            <p className="font-semibold">❌ Transaction Failed</p>
+            <p className="text-xs mt-1">{errorMessage.slice(0, 100)}</p>
+          </div>,
+          { duration: 5000 }
+        );
+      }
     }
   };
 
@@ -233,7 +530,13 @@ const BidModal: React.FC<BidModalProps> = ({
     }
   };
 
+  const handleConfirmationClose = () => {
+    setShowConfirmation(false);
+    onClose(); // Close main modal too
+  };
+
   return (
+    <>
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
@@ -245,56 +548,65 @@ const BidModal: React.FC<BidModalProps> = ({
       size="lg"
       closeOnOverlayClick={!isPending}
     >
-      <div className="space-y-6">
-        {/* Phase Info */}
-        <Card variant="cyber" className="p-4">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 rounded-lg bg-primary-500/20">
-              <Info className="w-5 h-5 text-primary-400" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-white">
-                {mode === 'commit' ? 'Commit Phase' : 'Reveal Phase'}
-              </h3>
-              <p className="text-sm text-gray-400">
-                {mode === 'commit' 
-                  ? 'Your bid will be hidden until the reveal phase'
-                  : 'Reveal your bid to compete for the win'
-                }
-              </p>
-            </div>
-          </div>
-        </Card>
+      <div className="space-y-2">
+        {/* Phase Info - Simplified */}
+        <div className="flex items-center space-x-2 p-2 rounded bg-primary-500/10 border border-primary-500/20">
+          <Info className="w-3.5 h-3.5 text-primary-400" />
+          <p className="text-xs text-gray-300">
+            {mode === 'commit' 
+              ? 'Submit your sealed bid - it stays hidden until reveal phase'
+              : 'Reveal your committed bid to compete'
+            }
+          </p>
+        </div>
 
         {/* Form */}
-        <div className="space-y-4">
-          {/* Bid Amount */}
-          <Input
-            label="Bid Amount (ETH)"
-            type="number"
-            step="0.001"
-            placeholder="0.1"
-            value={bidAmount}
-            onChange={(e) => setBidAmount(e.target.value)}
-            error={errors.bidAmount}
-            variant="cyber"
-            disabled={isPending}
-          />
+        <div className="space-y-2">
+          {/* Bid and Collateral in 2 columns */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <Input
+              label="Bid Amount (ETH)"
+              type="number"
+              step="0.001"
+              placeholder="0.1"
+              value={bidAmount}
+              onChange={(e) => setBidAmount(e.target.value)}
+              error={errors.bidAmount}
+              variant="cyber"
+              disabled={isPending}
+            />
+            
+            {/* Collateral (Commit mode) */}
+            {mode === 'commit' && (
+              <Input
+                label="Collateral Amount (ETH)"
+                type="number"
+                step="0.001"
+                placeholder="0.05"
+                value={collateral}
+                onChange={(e) => setCollateral(e.target.value)}
+                error={errors.collateral}
+                helper={`Min ${formatETH(auctionInfo.minimumCollateral)} ETH`}
+                variant="cyber"
+                disabled={isPending}
+              />
+            )}
+          </div>
 
           {/* Text Content */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className="block text-xs font-medium text-gray-300 mb-1">
               Your Message (Max 500 characters)
             </label>
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder="Share your voice with the world..."
-              className="w-full h-24 px-3 py-2 bg-dark-800/50 border border-white/20 rounded-lg text-white placeholder-gray-500 focus:border-primary-500 focus:ring-1 focus:ring-primary-500/20 transition-all duration-200 resize-none"
+              className="w-full h-14 px-2.5 py-1.5 text-sm bg-dark-800/50 border border-white/20 rounded-lg text-white placeholder-gray-500 focus:border-primary-500 focus:ring-1 focus:ring-primary-500/20 transition-all duration-200 resize-none"
               maxLength={500}
               disabled={isPending}
             />
-            <div className="flex justify-between mt-1">
+            <div className="flex justify-between mt-0.5">
               {errors.text && (
                 <p className="text-xs text-red-400">{errors.text}</p>
               )}
@@ -304,17 +616,15 @@ const BidModal: React.FC<BidModalProps> = ({
             </div>
           </div>
 
-          {/* IPFS CIDs with integrated upload */}
+          {/* Media Upload */}
           {!address && (
-            <Card variant="cyber" className="p-3 bg-yellow-500/10 border-yellow-500/30">
-              <div className="flex items-center space-x-2">
-                <AlertCircle className="w-4 h-4 text-yellow-400 flex-shrink-0" />
-                <p className="text-sm text-yellow-300">Please connect your wallet first to upload files</p>
-              </div>
-            </Card>
+            <div className="p-2 rounded bg-yellow-500/10 border border-yellow-500/30 text-xs text-yellow-300 flex items-center space-x-2">
+              <AlertCircle className="w-3 h-3" />
+              <span>Connect wallet to upload files</span>
+            </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {/* Image CID with Upload */}
             <div className="relative">
               <input
@@ -335,7 +645,7 @@ const BidModal: React.FC<BidModalProps> = ({
                 value={imageCid}
                 onChange={(e) => setImageCid(e.target.value)}
                 error={errors.imageCid}
-                helper={uploadingImage ? "Uploading..." : "Click upload icon or paste CID. Max 500KB"}
+                helper={uploadingImage ? "Uploading..." : "Max 500KB"}
                 variant="cyber"
                 disabled={isPending || uploadingImage}
               />
@@ -349,10 +659,10 @@ const BidModal: React.FC<BidModalProps> = ({
                   document.getElementById('image-upload')?.click();
                 }}
                 disabled={isPending || uploadingImage}
-                className="absolute right-3 top-[38px] p-2 rounded-lg bg-primary-500/20 hover:bg-primary-500/30 text-primary-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded bg-primary-500/20 hover:bg-primary-500/30 text-primary-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Upload image"
               >
-                <Upload className={`w-4 h-4 ${uploadingImage ? 'animate-pulse' : ''}`} />
+                <Upload className={`w-3.5 h-3.5 ${uploadingImage ? 'animate-pulse' : ''}`} />
               </button>
             </div>
 
@@ -376,7 +686,7 @@ const BidModal: React.FC<BidModalProps> = ({
                 value={voiceCid}
                 onChange={(e) => setVoiceCid(e.target.value)}
                 error={errors.voiceCid}
-                helper={uploadingAudio ? "Uploading..." : "Click upload icon or paste CID. Max 1MB"}
+                helper={uploadingAudio ? "Uploading..." : "Max 1MB"}
                 variant="cyber"
                 disabled={isPending || uploadingAudio}
               />
@@ -390,44 +700,62 @@ const BidModal: React.FC<BidModalProps> = ({
                   document.getElementById('audio-upload')?.click();
                 }}
                 disabled={isPending || uploadingAudio}
-                className="absolute right-3 top-[38px] p-2 rounded-lg bg-secondary-500/20 hover:bg-secondary-500/30 text-secondary-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded bg-secondary-500/20 hover:bg-secondary-500/30 text-secondary-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Upload audio"
               >
-                <Upload className={`w-4 h-4 ${uploadingAudio ? 'animate-pulse' : ''}`} />
+                <Upload className={`w-3.5 h-3.5 ${uploadingAudio ? 'animate-pulse' : ''}`} />
               </button>
             </div>
           </div>
 
-          {/* Collateral (Commit mode) */}
-          {mode === 'commit' && (
-            <Input
-              label="Collateral Amount (ETH)"
-              type="number"
-              step="0.001"
-              placeholder="0.1"
-              value={collateral}
-              onChange={(e) => setCollateral(e.target.value)}
-              error={errors.collateral}
-              helper={`Minimum: ${formatETH(auctionInfo.minimumCollateral)} ETH`}
-              variant="cyber"
-              disabled={isPending}
-            />
-          )}
+          {/* Remaining amount info - simplified */}
+          {mode === 'commit' && bidAmount && collateral && !errors.bidAmount && !errors.collateral && (() => {
+            const remaining = calculateRemainingAmount(bidAmount, collateral);
+            return remaining ? (
+              <div className="p-2 rounded bg-orange-500/10 border border-orange-500/20">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-orange-300">Remaining to pay at reveal:</span>
+                  <span className="font-semibold text-xs text-orange-400">{formatETH(remaining)} ETH</span>
+                </div>
+              </div>
+            ) : null;
+          })()}
 
           {/* Additional Collateral (Reveal mode) */}
           {mode === 'reveal' && (
-            <Input
-              label="Additional Collateral (ETH, Optional)"
-              type="number"
-              step="0.001"
-              placeholder="0.0"
-              value={additionalCollateral}
-              onChange={(e) => setAdditionalCollateral(e.target.value)}
-              error={errors.additionalCollateral}
-              helper="Add more collateral if needed"
-              variant="cyber"
-              disabled={isPending}
-            />
+            <>
+              <Input
+                label="Remaining Amount to Send (ETH)"
+                type="number"
+                step="0.001"
+                placeholder="0.0"
+                value={additionalCollateral}
+                onChange={(e) => setAdditionalCollateral(e.target.value)}
+                error={errors.additionalCollateral}
+                helper="Bid minus already paid collateral"
+                variant="cyber"
+                disabled={isPending}
+              />
+              
+              {/* Calculation breakdown - simplified */}
+              {existingCommit?.bidAmount && existingCommit?.collateral && (
+                <div className="p-2 rounded bg-blue-500/10 border border-blue-500/20 space-y-0.5 text-xs">
+                  <div className="flex justify-between text-gray-400">
+                    <span>Bid:</span>
+                    <span>{existingCommit.bidAmount} ETH</span>
+                  </div>
+                  <div className="flex justify-between text-green-400">
+                    <span>Paid:</span>
+                    <span>-{existingCommit.collateral} ETH</span>
+                  </div>
+                  <div className="h-px bg-white/10" />
+                  <div className="flex justify-between font-semibold">
+                    <span className="text-gray-300">To Pay:</span>
+                    <span className="text-orange-400">{additionalCollateral} ETH</span>
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {/* Salt (Reveal mode) */}
@@ -444,51 +772,187 @@ const BidModal: React.FC<BidModalProps> = ({
           )}
         </div>
 
-        {/* Commit Details (Commit mode) */}
+        {/* Commit Details - Polished Expandable */}
         {mode === 'commit' && commitHash && (
-          <Card variant="neon" className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-white">Commit Details</h3>
-              <Button
-                size="sm"
-                variant="ghost"
+          <Card variant="neon" className="p-2 border-2 border-yellow-500/30 overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-xs font-semibold text-yellow-300 flex items-center space-x-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>Important: Save Your Data</span>
+              </h3>
+              <motion.button
                 onClick={() => setShowCommitDetails(!showCommitDetails)}
-                icon={showCommitDetails ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                className="text-xs font-medium px-2 py-1 rounded bg-primary-500/10 hover:bg-primary-500/20 text-primary-400 hover:text-primary-300 transition-colors duration-200"
+                whileTap={{ scale: 0.95 }}
               >
                 {showCommitDetails ? 'Hide' : 'Show'}
-              </Button>
+              </motion.button>
             </div>
-            
-            {showCommitDetails && (
+
+            {/* Expandable Details with Smooth Animation */}
+            <motion.div
+              initial={false}
+              animate={{
+                height: showCommitDetails ? 'auto' : 0,
+                opacity: showCommitDetails ? 1 : 0,
+                marginBottom: showCommitDetails ? '0.25rem' : 0,
+              }}
+              transition={{
+                height: { type: 'spring', stiffness: 300, damping: 30, mass: 0.8 },
+                opacity: { duration: 0.2, ease: 'easeInOut' },
+                marginBottom: { type: 'spring', stiffness: 300, damping: 30 },
+              }}
+              className="overflow-hidden"
+            >
               <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="space-y-2 text-sm font-mono"
+                initial={false}
+                animate={{
+                  y: showCommitDetails ? 0 : -10,
+                }}
+                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                className="space-y-1"
               >
-                <div>
-                  <span className="text-gray-400">Hash: </span>
-                  <span className="text-primary-400 break-all">{commitHash}</span>
+                {/* Salt - Most Important */}
+                <div className="p-2 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 rounded border border-yellow-500/40">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-yellow-300 font-semibold">🔑 Secret Salt</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(salt);
+                        setCopiedItem('salt');
+                        setTimeout(() => setCopiedItem(null), 2000);
+                        toast.success('Salt copied!');
+                      }}
+                      className="px-1.5 py-0.5 bg-yellow-500/30 hover:bg-yellow-500/40 rounded text-xs text-yellow-200 font-semibold"
+                    >
+                      {copiedItem === 'salt' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                  <p className="text-xs font-mono text-yellow-100 break-all">{salt}</p>
                 </div>
-                <div>
-                  <span className="text-gray-400">Salt: </span>
-                  <span className="text-secondary-400">{salt}</span>
+
+                {/* Hash */}
+                <div className="p-2 bg-dark-800/50 rounded border border-white/10">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-400">Commit Hash</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(commitHash);
+                        setCopiedItem('hash');
+                        setTimeout(() => setCopiedItem(null), 2000);
+                      }}
+                      className="text-xs text-primary-400 hover:text-primary-300"
+                    >
+                      {copiedItem === 'hash' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                  <p className="text-xs font-mono text-primary-400 break-all mt-1">{commitHash}</p>
                 </div>
               </motion.div>
-            )}
-            
-            <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-              <div className="flex items-start space-x-2">
-                <AlertCircle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-yellow-300">
-                  Save your salt! You'll need it to reveal your bid. We'll also save it locally for convenience.
-                </p>
-              </div>
-            </div>
+            </motion.div>
+
+            {/* Warning with Download */}
+            <CommitWarningBox onDownload={downloadRevealData} />
           </Card>
         )}
 
+        {/* Reveal Mode: Backup Upload - Simplified */}
+        {mode === 'reveal' && !existingCommit && (
+          <div className="p-2 rounded bg-blue-500/10 border border-blue-500/20">
+            <div className="flex items-center space-x-1.5 mb-1.5">
+              <FileUp className="w-3.5 h-3.5 text-blue-400" />
+              <span className="text-xs font-semibold text-blue-300">No saved data found</span>
+            </div>
+            <p className="text-xs text-gray-400 mb-2">
+              Upload your backup file or enter details manually
+            </p>
+            
+            <input
+              type="file"
+              id="reveal-data-upload"
+              accept=".json"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+            
+            <Button
+              onClick={() => document.getElementById('reveal-data-upload')?.click()}
+              variant="outline"
+              size="sm"
+              className="w-full bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/20"
+            >
+              <FileUp className="w-3 h-3 mr-2" />
+              Upload Backup File
+            </Button>
+          </div>
+        )}
+
+        {/* Upload Success */}
+        {uploadedData && (
+          <div className="p-2 rounded bg-green-500/10 border border-green-500/20 flex items-center space-x-2">
+            <Check className="w-3.5 h-3.5 text-green-400" />
+            <div className="flex-1">
+              <p className="text-xs text-green-300 font-semibold">Backup loaded!</p>
+              <p className="text-[10px] text-green-200/80">Auction #{uploadedData.auctionId}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Hash Validation Status - Only in Reveal Mode */}
+        {mode === 'reveal' && onChainCommitHash && (
+          <div>
+            {hashValidation === 'valid' && (
+              <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 space-y-1">
+                <div className="flex items-start space-x-2">
+                  <Check className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-green-300">Hash Validated ✓</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Your data matches the on-chain commit hash
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {hashValidation === 'invalid' && (
+              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 space-y-2">
+                <div className="flex items-start space-x-2">
+                  <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-red-300">Hash Mismatch Warning</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      The entered data does NOT match your on-chain commit hash
+                    </p>
+                  </div>
+                </div>
+                <div className="p-2 rounded bg-yellow-500/10 border border-yellow-500/30">
+                  <p className="text-xs text-yellow-200">
+                    ⚠️ You can still try to reveal, but the smart contract will reject it with an "InvalidReveal" error. Double-check your bid amount, text, CIDs, and especially the salt value.
+                  </p>
+                </div>
+              </div>
+            )}
+            
+            {hashValidation === 'unknown' && bidAmount && salt && (
+              <div className="p-3 rounded-lg bg-gray-500/10 border border-gray-500/30">
+                <div className="flex items-start space-x-2">
+                  <Info className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-gray-300">Validating...</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Checking if data matches on-chain commit
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Action Buttons */}
-        <div className="flex space-x-3">
+        <div className="flex space-x-2">
           <Button
             variant="ghost"
             onClick={handleClose}
@@ -511,6 +975,33 @@ const BidModal: React.FC<BidModalProps> = ({
         </div>
       </div>
     </Modal>
+
+    {/* Confirmation Modal - Shows After Successful Commit */}
+    {showConfirmation && (
+      <Modal
+        isOpen={showConfirmation}
+        onClose={handleConfirmationClose}
+        title="✅ Bid Committed Successfully"
+        description="Important: Save your reveal data"
+        size="lg"
+      >
+        <div className="space-y-2">
+          {/* Warning Box */}
+          <CommitWarningBox onDownload={downloadRevealData} />
+
+          {/* Understand Button */}
+          <Button
+            variant="cyber"
+            onClick={handleConfirmationClose}
+            className="w-full"
+            glow
+          >
+            I Understand
+          </Button>
+        </div>
+      </Modal>
+    )}
+    </>
   );
 };
 
