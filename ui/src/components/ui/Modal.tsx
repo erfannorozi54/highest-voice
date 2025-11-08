@@ -65,7 +65,7 @@ const Modal: React.FC<ModalProps> = ({
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm" />
         </Transition.Child>
 
-        <div className="fixed inset-0 overflow-y-auto">
+        <div className="fixed inset-0 overflow-y-auto overscroll-contain">
           <div className="flex min-h-full items-center justify-center p-2 sm:p-4 text-center">
             <Transition.Child
               as={Fragment}
@@ -83,7 +83,7 @@ const Modal: React.FC<ModalProps> = ({
                 exit={{ opacity: 0, scale: 0.9, y: 20 }}
                 transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                 className={cn(
-                  'w-full transform overflow-hidden rounded-2xl glass border border-white/10 p-4 sm:p-6 text-left align-middle shadow-2xl transition-all max-h-[95vh] flex flex-col',
+                  'w-full transform rounded-2xl glass border border-white/10 p-4 sm:p-6 text-left align-middle shadow-2xl transition-all max-h-[90vh] flex flex-col isolate',
                   sizeClasses[size],
                   className
                 )}
@@ -119,12 +119,13 @@ const Modal: React.FC<ModalProps> = ({
                   </div>
                 )}
 
-                {/* Content - No visible scrollbar */}
+                {/* Content - Smooth scrolling with no visible scrollbar */}
                 <div 
-                  className="text-white flex-1 -mx-4 sm:-mx-6 px-4 sm:px-6 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden"
+                  className="text-white flex-1 -mx-4 sm:-mx-6 px-4 sm:px-6 overflow-y-auto overflow-x-hidden overscroll-contain scroll-smooth [&::-webkit-scrollbar]:w-0 [&::-webkit-scrollbar]:h-0"
                   style={{
                     scrollbarWidth: 'none',
                     msOverflowStyle: 'none',
+                    scrollPaddingTop: '1rem',
                   }}
                 >
                   {children}

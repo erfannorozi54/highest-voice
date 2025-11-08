@@ -75,10 +75,12 @@ function checkRateLimit(key: string) {
 function getUpstreamUrl(chainId: string | null): { url: string; credentials: { id?: string; secret?: string } } | null {
   if (!chainId) return null
   
+  // Local Hardhat
   if (chainId === '31337') {
     return { url: 'http://127.0.0.1:8545', credentials: {} }
   }
   
+  // Ethereum Sepolia
   if (chainId === '11155111') {
     if (!INFURA_ID_SEPOLIA) return null
     return {
@@ -87,12 +89,59 @@ function getUpstreamUrl(chainId: string | null): { url: string; credentials: { i
     }
   }
   
+  // Arbitrum Sepolia (public RPC)
+  if (chainId === '421614') {
+    return { 
+      url: `https://arbitrum-sepolia.infura.io/v3/${INFURA_ID_SEPOLIA}`,
+      credentials: { id: INFURA_ID_SEPOLIA, secret: INFURA_SECRET_SEPOLIA } 
+    }
+  }
+  
+  // Ethereum Mainnet
   if (chainId === '1') {
     if (!INFURA_ID_MAINNET) return null
     return {
       url: `https://mainnet.infura.io/v3/${INFURA_ID_MAINNET}`,
       credentials: { id: INFURA_ID_MAINNET, secret: INFURA_SECRET_MAINNET }
     }
+  }
+  
+  // Arbitrum One (via Infura or public)
+  if (chainId === '42161') {
+    if (INFURA_ID_MAINNET) {
+      return {
+        url: `https://arbitrum-mainnet.infura.io/v3/${INFURA_ID_MAINNET}`,
+        credentials: { id: INFURA_ID_MAINNET, secret: INFURA_SECRET_MAINNET }
+      }
+    }
+    return { url: 'https://arb1.arbitrum.io/rpc', credentials: {} }
+  }
+  
+  // Polygon (via Infura or public)
+  if (chainId === '137') {
+    if (INFURA_ID_MAINNET) {
+      return {
+        url: `https://polygon-mainnet.infura.io/v3/${INFURA_ID_MAINNET}`,
+        credentials: { id: INFURA_ID_MAINNET, secret: INFURA_SECRET_MAINNET }
+      }
+    }
+    return { url: 'https://polygon-rpc.com', credentials: {} }
+  }
+  
+  // Optimism (via Infura or public)
+  if (chainId === '10') {
+    if (INFURA_ID_MAINNET) {
+      return {
+        url: `https://optimism-mainnet.infura.io/v3/${INFURA_ID_MAINNET}`,
+        credentials: { id: INFURA_ID_MAINNET, secret: INFURA_SECRET_MAINNET }
+      }
+    }
+    return { url: 'https://mainnet.optimism.io', credentials: {} }
+  }
+  
+  // Base (public RPC)
+  if (chainId === '8453') {
+    return { url: 'https://mainnet.base.org', credentials: {} }
   }
   
   return null

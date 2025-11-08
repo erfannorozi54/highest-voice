@@ -140,23 +140,30 @@ const BidModal: React.FC<BidModalProps> = ({
     }
   }, [mode, bidAmount, text, imageCid, voiceCid, salt, onChainCommitHash]);
 
-  // Lock body scroll when modal is open
+  // Lock body scroll when modal is open with improved handling
   useEffect(() => {
     if (isOpen) {
       // Save current scroll position
+      const scrollY = window.scrollY;
       const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+      
+      // Lock scroll
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.width = '100%';
       document.body.style.overflow = 'hidden';
       document.body.style.paddingRight = `${scrollbarWidth}px`;
-    } else {
-      // Restore scroll
-      document.body.style.overflow = '';
-      document.body.style.paddingRight = '';
+      
+      return () => {
+        // Restore scroll
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.width = '';
+        document.body.style.overflow = '';
+        document.body.style.paddingRight = '';
+        window.scrollTo(0, scrollY);
+      };
     }
-
-    return () => {
-      document.body.style.overflow = '';
-      document.body.style.paddingRight = '';
-    };
   }, [isOpen]);
 
   // Download reveal data as JSON file
@@ -774,7 +781,7 @@ const BidModal: React.FC<BidModalProps> = ({
 
         {/* Commit Details - Polished Expandable */}
         {mode === 'commit' && commitHash && (
-          <Card variant="neon" className="p-2 border-2 border-yellow-500/30 overflow-hidden">
+          <Card variant="neon" className="p-2 border-2 border-yellow-500/30 shadow-[0_0_20px_rgba(234,179,8,0.2)] !overflow-visible">
             {/* Header */}
             <div className="flex items-center justify-between mb-1">
               <h3 className="text-xs font-semibold text-yellow-300 flex items-center space-x-1.5">
@@ -796,23 +803,15 @@ const BidModal: React.FC<BidModalProps> = ({
               animate={{
                 height: showCommitDetails ? 'auto' : 0,
                 opacity: showCommitDetails ? 1 : 0,
-                marginBottom: showCommitDetails ? '0.25rem' : 0,
               }}
               transition={{
-                height: { type: 'spring', stiffness: 300, damping: 30, mass: 0.8 },
+                height: { duration: 0.3, ease: [0.4, 0, 0.2, 1] },
                 opacity: { duration: 0.2, ease: 'easeInOut' },
-                marginBottom: { type: 'spring', stiffness: 300, damping: 30 },
               }}
-              className="overflow-hidden"
+              className="overflow-hidden will-change-[height,opacity]"
+              style={{ marginBottom: showCommitDetails ? '0.25rem' : 0 }}
             >
-              <motion.div
-                initial={false}
-                animate={{
-                  y: showCommitDetails ? 0 : -10,
-                }}
-                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                className="space-y-1"
-              >
+              <div className="space-y-1 py-1">
                 {/* Salt - Most Important */}
                 <div className="p-2 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 rounded border border-yellow-500/40">
                   <div className="flex items-center justify-between mb-1">
@@ -849,7 +848,7 @@ const BidModal: React.FC<BidModalProps> = ({
                   </div>
                   <p className="text-xs font-mono text-primary-400 break-all mt-1">{commitHash}</p>
                 </div>
-              </motion.div>
+              </div>
             </motion.div>
 
             {/* Warning with Download */}

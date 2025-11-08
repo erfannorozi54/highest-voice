@@ -5,7 +5,8 @@ import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>,
+  'onAnimationStart' | 'onAnimationEnd' | 'onDragStart' | 'onDragEnd' | 'onDrag'> {
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'cyber' | 'neon';
   size?: 'sm' | 'md' | 'lg' | 'xl';
   loading?: boolean;
@@ -49,27 +50,16 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 
     const glowClasses = glow ? 'hover:shadow-glow' : '';
 
-    const ButtonComponent = animate ? motion.button : 'button';
-    const animationProps = animate ? {
-      whileHover: { scale: 1.02 },
-      whileTap: { scale: 0.98 },
-      transition: { type: 'spring', stiffness: 400, damping: 17 }
-    } : {};
+    const buttonClassName = cn(
+      baseClasses,
+      variants[variant],
+      sizes[size],
+      glowClasses,
+      className
+    );
 
-    return (
-      <ButtonComponent
-        ref={ref}
-        className={cn(
-          baseClasses,
-          variants[variant],
-          sizes[size],
-          glowClasses,
-          className
-        )}
-        disabled={disabled || loading}
-        {...animationProps}
-        {...props}
-      >
+    const buttonContent = (
+      <>
         {/* Cyber variant overlay */}
         {variant === 'cyber' && (
           <div className="absolute inset-0 bg-gradient-to-r from-primary-400/20 to-secondary-400/20 opacity-0 hover:opacity-100 transition-opacity duration-300" />
@@ -91,7 +81,34 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         {icon && iconPosition === 'right' && !loading && (
           <span className="ml-2">{icon}</span>
         )}
-      </ButtonComponent>
+      </>
+    );
+
+    if (animate) {
+      return (
+        <motion.button
+          ref={ref}
+          className={buttonClassName}
+          disabled={disabled || loading}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+          {...props}
+        >
+          {buttonContent}
+        </motion.button>
+      );
+    }
+
+    return (
+      <button
+        ref={ref}
+        className={buttonClassName}
+        disabled={disabled || loading}
+        {...props}
+      >
+        {buttonContent}
+      </button>
     );
   }
 );

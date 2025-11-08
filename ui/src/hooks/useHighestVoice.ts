@@ -12,41 +12,56 @@ import { getAuctionPhase, getTimeRemaining } from '@/lib/utils';
 // Hook for current auction information
 export function useCurrentAuction() {
   const chainId = useChainId();
-  const contractAddress = getContractAddress(chainId, 'highestVoice');
+  const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
 
   const { data: currentAuctionId, isLoading: auctionIdLoading } = useReadContract({
-    address: contractAddress,
+    address: contractAddress || undefined,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'currentAuctionId',
     chainId,
+    query: {
+      enabled: !!contractAddress,
+    },
   });
 
   const { data: countdownEnd, isLoading: countdownLoading } = useReadContract({
-    address: contractAddress,
+    address: contractAddress || undefined,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'getCountdownEnd',
     chainId,
+    query: {
+      enabled: !!contractAddress,
+    },
   });
 
   const { data: minimumCollateral, isLoading: collateralLoading } = useReadContract({
-    address: contractAddress,
+    address: contractAddress || undefined,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'minimumCollateral',
     chainId,
+    query: {
+      enabled: !!contractAddress,
+    },
   });
 
   const { data: lastWinnerPost } = useReadContract({
-    address: contractAddress,
+    address: contractAddress || undefined,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'lastWinnerPost',
     chainId,
+    query: {
+      enabled: !!contractAddress,
+    },
   });
 
   const { data: lastWinnerTime } = useReadContract({
-    address: contractAddress,
+    address: contractAddress || undefined,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'lastWinnerTime',
     chainId,
+    query: {
+      enabled: !!contractAddress,
+    },
   });
 
   // Calculate auction info
@@ -73,7 +88,7 @@ export function useCurrentAuction() {
 // Hook for user statistics
 export function useUserStats(address?: `0x${string}`) {
   const chainId = useChainId();
-  const contractAddress = getContractAddress(chainId, 'highestVoice');
+  const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
 
   const { data: userStats, isLoading } = useReadContract({
     address: contractAddress,
@@ -106,7 +121,7 @@ export function useUserStats(address?: `0x${string}`) {
 // Hook for leaderboard
 export function useLeaderboard() {
   const chainId = useChainId();
-  const contractAddress = getContractAddress(chainId, 'highestVoice');
+  const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
 
   const { data: leaderboardData, isLoading } = useReadContract({
     address: contractAddress,
@@ -131,7 +146,7 @@ export function useLeaderboard() {
 // Hook for user funds summary
 export function useUserFunds(address?: `0x${string}`) {
   const chainId = useChainId();
-  const contractAddress = getContractAddress(chainId, 'highestVoice');
+  const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
 
   const { data: fundsSummary, isLoading } = useReadContract({
     address: contractAddress,
@@ -154,7 +169,7 @@ export function useUserFunds(address?: `0x${string}`) {
 // Hook for settlement progress
 export function useSettlementProgress(auctionId?: bigint) {
   const chainId = useChainId();
-  const contractAddress = getContractAddress(chainId, 'highestVoice');
+  const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
 
   const { data: progressData, isLoading } = useReadContract({
     address: contractAddress,
@@ -183,7 +198,7 @@ export function useSettlementProgress(auctionId?: bigint) {
 // Hook to check if user has committed in current auction
 export function useUserCommitStatus(auctionId?: bigint, userAddress?: `0x${string}`) {
   const chainId = useChainId();
-  const contractAddress = getContractAddress(chainId, 'highestVoice');
+  const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
 
   const { data: hasCommitted, isLoading, refetch } = useReadContract({
     address: contractAddress,
@@ -206,7 +221,7 @@ export function useUserCommitStatus(auctionId?: bigint, userAddress?: `0x${strin
 // Hook to get user's bid details including commit hash
 export function useUserBidDetails(auctionId?: bigint) {
   const chainId = useChainId();
-  const contractAddress = getContractAddress(chainId, 'highestVoice');
+  const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
 
   const { data: bidData, isLoading, refetch } = useReadContract({
     address: contractAddress,
@@ -232,11 +247,12 @@ export function useUserBidDetails(auctionId?: bigint) {
 // Hook for contract writes
 export function useHighestVoiceWrite() {
   const chainId = useChainId();
-  const contractAddress = getContractAddress(chainId, 'highestVoice');
-  const { writeContract, ...rest } = useWriteContract();
+  const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
+  const { writeContractAsync, ...rest } = useWriteContract();
 
-  const commitBid = (commitHash: `0x${string}`, collateral: string) => {
-    return writeContract({
+  const commitBid = (commitHash: `0x${string}`, collateral: string): Promise<`0x${string}`> => {
+    if (!contractAddress) throw new Error('Contract not deployed on this network');
+    return writeContractAsync({
       address: contractAddress,
       abi: HIGHEST_VOICE_ABI,
       functionName: 'commitBid',
@@ -252,8 +268,9 @@ export function useHighestVoiceWrite() {
     voiceCid: string,
     salt: `0x${string}`,
     additionalCollateral?: string
-  ) => {
-    return writeContract({
+  ): Promise<`0x${string}`> => {
+    if (!contractAddress) throw new Error('Contract not deployed on this network');
+    return writeContractAsync({
       address: contractAddress,
       abi: HIGHEST_VOICE_ABI,
       functionName: 'revealBid',
@@ -263,7 +280,8 @@ export function useHighestVoiceWrite() {
   };
 
   const cancelBid = () => {
-    return writeContract({
+    if (!contractAddress) throw new Error('Contract not deployed on this network');
+    return writeContractAsync({
       address: contractAddress,
       abi: HIGHEST_VOICE_ABI,
       functionName: 'cancelBid',
@@ -271,7 +289,8 @@ export function useHighestVoiceWrite() {
   };
 
   const withdrawEverything = () => {
-    return writeContract({
+    if (!contractAddress) throw new Error('Contract not deployed on this network');
+    return writeContractAsync({
       address: contractAddress,
       abi: HIGHEST_VOICE_ABI,
       functionName: 'withdrawEverything',
@@ -279,7 +298,8 @@ export function useHighestVoiceWrite() {
   };
 
   const withdrawRefund = (auctionId: bigint) => {
-    return writeContract({
+    if (!contractAddress) throw new Error('Contract not deployed on this network');
+    return writeContractAsync({
       address: contractAddress,
       abi: HIGHEST_VOICE_ABI,
       functionName: 'withdrawRefund',
@@ -288,7 +308,8 @@ export function useHighestVoiceWrite() {
   };
 
   const tipWinner = (auctionId: bigint, tipAmount: string) => {
-    return writeContract({
+    if (!contractAddress) throw new Error('Contract not deployed on this network');
+    return writeContractAsync({
       address: contractAddress,
       abi: HIGHEST_VOICE_ABI,
       functionName: 'tipWinner',
@@ -298,7 +319,8 @@ export function useHighestVoiceWrite() {
   };
 
   const settleAuction = () => {
-    return writeContract({
+    if (!contractAddress) throw new Error('Contract not deployed on this network');
+    return writeContractAsync({
       address: contractAddress,
       abi: HIGHEST_VOICE_ABI,
       functionName: 'settleAuction',
@@ -306,7 +328,8 @@ export function useHighestVoiceWrite() {
   };
 
   const distributeSurplus = () => {
-    return writeContract({
+    if (!contractAddress) throw new Error('Contract not deployed on this network');
+    return writeContractAsync({
       address: contractAddress,
       abi: HIGHEST_VOICE_ABI,
       functionName: 'distributeSurplus',
@@ -327,10 +350,18 @@ export function useHighestVoiceWrite() {
 }
 
 // Hook for watching contract events
-export function useHighestVoiceEvents() {
+// OPTIMIZED: Conditional watching based on auction phase and reduced polling frequency
+export function useHighestVoiceEvents(options?: { enabled?: boolean; currentPhase?: string }) {
   const chainId = useChainId();
-  const contractAddress = getContractAddress(chainId, 'highestVoice');
+  const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
   const isProd = process.env.NODE_ENV === 'production';
+  const isMainnet = chainId === 1;
+  
+  // Optimize polling intervals for mainnet vs testnet
+  // Mainnet: 30s (to reduce RPC costs), Testnet: 12s, Local: 4s
+  const pollingInterval = isMainnet ? 30_000 : isProd ? 12_000 : 4_000;
+  
+  const { enabled = true, currentPhase } = options || {};
 
   const onNewWinner = useCallback((logs: any) => {
     console.log('New winner:', logs);
@@ -344,38 +375,41 @@ export function useHighestVoiceEvents() {
     console.log('New reveal:', logs);
   }, []);
 
-  // Watch for new winners
+  // Watch for new winners - Only during settlement phase for efficiency
   useWatchContractEvent({
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     eventName: 'NewWinner',
-    pollingInterval: isProd ? 10_000 : 4_000, // Poll every 4 seconds instead of default 1 second
+    pollingInterval,
     onLogs: onNewWinner,
+    enabled: enabled && currentPhase === 'settlement',
   });
 
-  // Watch for new commits
+  // Watch for new commits - Only during commit phase
   useWatchContractEvent({
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     eventName: 'NewCommit',
-    pollingInterval: isProd ? 10_000 : 4_000,
+    pollingInterval,
     onLogs: onNewCommit,
+    enabled: enabled && currentPhase === 'commit',
   });
 
-  // Watch for new reveals
+  // Watch for new reveals - Only during reveal phase
   useWatchContractEvent({
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     eventName: 'NewReveal',
-    pollingInterval: isProd ? 10_000 : 4_000,
+    pollingInterval,
     onLogs: onNewReveal,
+    enabled: enabled && currentPhase === 'reveal',
   });
 }
 
 // Hook for legendary token information
 export function useLegendaryToken() {
   const chainId = useChainId();
-  const contractAddress = getContractAddress(chainId, 'highestVoice');
+  const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
 
   const { data: legendaryInfo, isLoading } = useReadContract({
     address: contractAddress,
@@ -404,7 +438,7 @@ export const useAuctionInfo = useCurrentAuction;
 // Hook for winner NFT data
 export function useWinnerNFT(tokenId?: bigint) {
   const chainId = useChainId();
-  const contractAddress = getContractAddress(chainId, 'highestVoice');
+  const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
 
   const { data: nftData, isLoading } = useReadContract({
     address: contractAddress,

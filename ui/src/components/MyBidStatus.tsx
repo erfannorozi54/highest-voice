@@ -13,7 +13,7 @@ interface MyBidStatusProps {
   auctionId: bigint;
   address: string;
   phase: 'commit' | 'reveal' | 'settlement' | 'ended';
-  onRevealClick: () => void;
+  onRevealClick?: () => void; // Optional - not needed when form is already visible
   hasCommitted?: boolean; // From smart contract
 }
 
@@ -88,15 +88,17 @@ export function MyBidStatus({ auctionId, address, phase, onRevealClick, hasCommi
           </div>
 
           {/* Action Button */}
-          <Button
-            onClick={onRevealClick}
-            className="w-full bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-700 hover:to-orange-700"
-            size="md"
-            glow
-          >
-            <Upload className="w-4 h-4 mr-2" />
-            Recover & Reveal Bid
-          </Button>
+          {onRevealClick && (
+            <Button
+              onClick={onRevealClick}
+              className="w-full bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-700 hover:to-orange-700"
+              size="md"
+              glow
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              Recover & Reveal Bid
+            </Button>
+          )}
 
           {/* Help Text */}
           <div className="p-3 rounded-lg bg-dark-900/50 border border-white/10">
@@ -276,34 +278,36 @@ export function MyBidStatus({ auctionId, address, phase, onRevealClick, hasCommi
           </div>
 
           {/* Reveal Button */}
-          <Button
-            onClick={onRevealClick}
-            disabled={!canReveal}
-            className={`w-full ${
-              canReveal
-                ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700'
-                : 'bg-gray-700'
-            }`}
-            size="md"
-            glow={canReveal}
-          >
-            {phase === 'commit' ? (
-              <>
-                <Lock className="w-4 h-4 mr-2" />
-                Reveal in Next Phase
-              </>
-            ) : phase === 'reveal' ? (
-              <>
-                <Zap className="w-4 h-4 mr-2" />
-                Reveal Bid Now
-              </>
-            ) : (
-              <>
-                <CheckCircle className="w-4 h-4 mr-2" />
-                Auction Settled
-              </>
-            )}
-          </Button>
+          {onRevealClick && (
+            <Button
+              onClick={onRevealClick}
+              disabled={!canReveal}
+              className={`w-full ${
+                canReveal
+                  ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700'
+                  : 'bg-gray-700'
+              }`}
+              size="md"
+              glow={canReveal}
+            >
+              {phase === 'commit' ? (
+                <>
+                  <Lock className="w-4 h-4 mr-2" />
+                  Reveal in Next Phase
+                </>
+              ) : phase === 'reveal' ? (
+                <>
+                  <Zap className="w-4 h-4 mr-2" />
+                  Reveal Bid Now
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Auction Settled
+                </>
+              )}
+            </Button>
+          )}
 
           {/* Message Preview */}
           {showDetails && bidData.text && (

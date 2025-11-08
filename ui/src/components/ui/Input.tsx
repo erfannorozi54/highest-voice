@@ -5,7 +5,8 @@ import { motion } from 'framer-motion';
 import { Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>,
+  'onAnimationStart' | 'onAnimationEnd' | 'onDragStart' | 'onDragEnd' | 'onDrag'> {
   label?: string;
   error?: string;
   helper?: string;
@@ -80,7 +81,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
               scale: isFocused ? 1.01 : 1,
             }}
             transition={{ type: 'spring', stiffness: 400, damping: 17 }}
-            {...props}
+            {...props as any}
           />
           
           {/* Right icon or password toggle */}

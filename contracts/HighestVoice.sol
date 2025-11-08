@@ -491,8 +491,16 @@ contract HighestVoice is ERC721 {
     function _startNewAuction() internal {
         currentAuctionId++;
         Auction storage auction = auctions[currentAuctionId];
-        auction.startTime = block.timestamp;
-        auction.commitEnd = block.timestamp + COMMIT_DURATION;
+        
+        // Use scheduled end time of previous auction to prevent timing drift
+        // This ensures each auction starts exactly 24h after the previous one,
+        // regardless of when settlement actually executes
+        uint256 scheduledStartTime = currentAuctionId > 1 
+            ? auctions[currentAuctionId - 1].revealEnd 
+            : block.timestamp; // First auction uses deployment time
+        
+        auction.startTime = scheduledStartTime;
+        auction.commitEnd = scheduledStartTime + COMMIT_DURATION;
         auction.revealEnd = auction.commitEnd + REVEAL_DURATION;
         auction.settled = false;
         auction.winnerDetermined = false;

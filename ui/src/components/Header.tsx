@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useChainId } from 'wagmi';
+import { usePathname } from 'next/navigation';
 import { Menu, X, Zap, Trophy, Users, Wallet, Settings } from 'lucide-react';
 import Image from 'next/image';
 import { Button } from './ui/Button';
@@ -20,6 +21,7 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
   const [mounted, setMounted] = useState(false);
   const { isConnected } = useAccount();
   const chainId = useChainId();
+  const pathname = usePathname();
 
   useEffect(() => {
     setMounted(true);
@@ -30,9 +32,17 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
   const navigation = [
     { name: 'Auction', href: '/', icon: Zap },
     { name: 'Leaderboard', href: '/leaderboard', icon: Trophy },
-    { name: 'NFTs', href: '/nfts', icon: Users },
+    { name: 'NFTs', href: '/nft', icon: Users },
     { name: 'Portfolio', href: '/portfolio', icon: Wallet },
   ];
+
+  // Check if a nav item is active
+  const isActive = (href: string) => {
+    if (href === '/') {
+      return pathname === '/';
+    }
+    return pathname.startsWith(href);
+  };
 
   return (
     <motion.header
@@ -77,18 +87,33 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center space-x-1">
-            {navigation.map((item) => (
-              <motion.a
-                key={item.name}
-                href={item.href}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="flex items-center space-x-2 px-4 py-2 rounded-lg text-gray-300 hover:text-white hover:bg-white/5 transition-all duration-200"
-              >
-                <item.icon className="w-4 h-4" />
-                <span className="font-medium">{item.name}</span>
-              </motion.a>
-            ))}
+            {navigation.map((item) => {
+              const active = isActive(item.href);
+              return (
+                <motion.a
+                  key={item.name}
+                  href={item.href}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className={cn(
+                    "flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200 relative",
+                    active
+                      ? "text-white bg-primary-500/20 border border-primary-500/30"
+                      : "text-gray-300 hover:text-white hover:bg-white/5"
+                  )}
+                >
+                  <item.icon className={cn("w-4 h-4", active && "text-primary-400")} />
+                  <span className="font-medium">{item.name}</span>
+                  {active && (
+                    <motion.div
+                      layoutId="activeIndicator"
+                      className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary-400 to-secondary-400"
+                      transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                    />
+                  )}
+                </motion.a>
+              );
+            })}
           </nav>
 
           {/* Network Badge & Connect Button */}
@@ -382,17 +407,28 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
               </div>
 
               {/* Navigation Links */}
-              {navigation.map((item) => (
-                <a
-                  key={item.name}
-                  href={item.href}
-                  className="flex items-center space-x-3 px-4 py-3 rounded-lg text-gray-300 hover:text-white hover:bg-white/5 transition-all duration-200"
-                  onClick={() => setIsMobileMenuOpen(false)}
-                >
-                  <item.icon className="w-5 h-5" />
-                  <span className="font-medium">{item.name}</span>
-                </a>
-              ))}
+              {navigation.map((item) => {
+                const active = isActive(item.href);
+                return (
+                  <a
+                    key={item.name}
+                    href={item.href}
+                    className={cn(
+                      "flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200",
+                      active
+                        ? "text-white bg-primary-500/20 border border-primary-500/30"
+                        : "text-gray-300 hover:text-white hover:bg-white/5"
+                    )}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    <item.icon className={cn("w-5 h-5", active && "text-primary-400")} />
+                    <span className="font-medium">{item.name}</span>
+                    {active && (
+                      <span className="ml-auto w-2 h-2 bg-primary-400 rounded-full" />
+                    )}
+                  </a>
+                );
+              })}
             </div>
           </motion.nav>
         )}

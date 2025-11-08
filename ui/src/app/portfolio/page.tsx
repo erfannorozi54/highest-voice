@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
+import { useRouter } from 'next/navigation';
 import { 
   Wallet, 
   Trophy, 
@@ -26,21 +27,39 @@ import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Spinner } from '@/components/ui/Spinner';
-import { useUserStats, useUserFunds } from '@/hooks/useHighestVoice';
+import { LogoLoader } from '@/components/LogoLoader';
+import { useUserStats, useUserFunds, useCurrentAuction, useUserCommitStatus } from '@/hooks/useHighestVoice';
 import { formatETH, truncateAddress } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 
 export default function PortfolioPage() {
+  const router = useRouter();
   const { address, isConnected } = useAccount();
   const { stats, isLoading: statsLoading } = useUserStats(address);
   const { availableNow, lockedActive, isLoading: fundsLoading } = useUserFunds(address);
+  const { auctionInfo } = useCurrentAuction();
+  const { hasCommitted } = useUserCommitStatus(auctionInfo?.id, address);
   const [activeTab, setActiveTab] = useState('portfolio');
+  const [mounted, setMounted] = useState(false);
+
+  // Prevent hydration mismatch by waiting for client-side mount
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Calculate win rate percentage
   const winRate = stats && stats.totalParticipations > 0n 
     ? Number((stats.totalWins * 10000n) / stats.totalParticipations) / 100
     : 0;
+
+  // Show loading until mounted to prevent hydration mismatch
+  if (!mounted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
+        <LogoLoader size="xl" message="Loading..." fullScreen />
+      </div>
+    );
+  }
 
   // Loading state
   if (!isConnected) {
@@ -69,10 +88,7 @@ export default function PortfolioPage() {
   if (statsLoading || fundsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
-        <div className="text-center space-y-4">
-          <Spinner size="xl" variant="neon" />
-          <p className="text-gray-400">Loading your portfolio...</p>
-        </div>
+        <LogoLoader size="xl" message="Loading your portfolio..." fullScreen />
       </div>
     );
   }
@@ -352,7 +368,7 @@ export default function PortfolioPage() {
             </Card>
           </motion.div>
 
-          {/* Empty State for No Activity */}
+          {/* Empty State / Current Auction Status */}
           {!hasActivity && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -360,17 +376,79 @@ export default function PortfolioPage() {
               transition={{ delay: 0.8 }}
             >
               <Card variant="neon" className="p-12 text-center">
-                <ImageIcon className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-                <h3 className="text-2xl font-bold text-white mb-2">
-                  Start Your Journey
-                </h3>
-                <p className="text-gray-400 mb-6 max-w-md mx-auto">
-                  You haven't participated in any auctions yet. Place your first bid to start building your portfolio!
-                </p>
-                <Button variant="cyber" size="lg" glow>
-                  <Zap className="w-5 h-5 mr-2" />
-                  Join Current Auction
-                </Button>
+                {!auctionInfo ? (
+                  <>
+                    <ImageIcon className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                    <h3 className="text-2xl font-bold text-white mb-2">
+                      No Active Auction
+                    </h3>
+                    <p className="text-gray-400 mb-6 max-w-md mx-auto">
+                      There is currently no active auction. Check back soon for the next opportunity!
+                    </p>
+                  </>
+                ) : hasCommitted ? (
+                  <>
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center border-2 border-green-500/30">
+                      <Trophy className="w-8 h-8 text-green-400" />
+                    </div>
+                    <h3 className="text-2xl font-bold text-white mb-2">
+                      {auctionInfo.phase === 'commit' ? 'Bid Committed!' : 'Ready to Reveal'}
+                    </h3>
+                    <p className="text-gray-400 mb-6 max-w-md mx-auto">
+                      {auctionInfo.phase === 'commit' 
+                        ? 'Your bid is locked in. Wait for the reveal phase to unveil your bid and compete!'
+                        : auctionInfo.phase === 'reveal'
+                        ? 'The reveal phase is now open! Reveal your bid to compete for the win.'
+                        : 'Your bid has been submitted. Check back for results!'}
+                    </p>
+                    {auctionInfo.phase === 'commit' && (
+                      <Button 
+                        variant="outline" 
+                        size="lg"
+                        onClick={() => router.push('/bid?mode=track')}
+                      >
+                        <Trophy className="w-5 h-5 mr-2" />
+                        View My Bid
+                      </Button>
+                    )}
+                    {auctionInfo.phase === 'reveal' && (
+                      <Button 
+                        variant="cyber" 
+                        size="lg" 
+                        glow
+                        onClick={() => router.push('/bid?mode=reveal')}
+                      >
+                        <Zap className="w-5 h-5 mr-2" />
+                        Reveal Bid Now
+                      </Button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <ImageIcon className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                    <h3 className="text-2xl font-bold text-white mb-2">
+                      Start Your Journey
+                    </h3>
+                    <p className="text-gray-400 mb-6 max-w-md mx-auto">
+                      {auctionInfo.phase === 'commit' 
+                        ? "You haven't participated in any auctions yet. Place your first bid to start building your portfolio!"
+                        : auctionInfo.phase === 'reveal'
+                        ? "The current auction is in reveal phase. Wait for the next auction to place your first bid!"
+                        : "The current auction is being settled. Wait for the next auction to begin!"}
+                    </p>
+                    {auctionInfo.phase === 'commit' && (
+                      <Button 
+                        variant="cyber" 
+                        size="lg" 
+                        glow
+                        onClick={() => router.push('/bid?mode=commit')}
+                      >
+                        <Zap className="w-5 h-5 mr-2" />
+                        Join Current Auction
+                      </Button>
+                    )}
+                  </>
+                )}
               </Card>
             </motion.div>
           )}

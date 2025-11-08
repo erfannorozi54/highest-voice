@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface CountdownTimerProps {
@@ -14,15 +13,9 @@ interface TimeUnit {
 }
 
 export function CountdownTimer({ seconds, size = 'md' }: CountdownTimerProps) {
-  const [prevTime, setPrevTime] = useState({ hours: 0, minutes: 0, seconds: 0 });
-  
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
-
-  useEffect(() => {
-    setPrevTime({ hours, minutes, seconds: secs });
-  }, [hours, minutes, secs]);
 
   const timeUnits: TimeUnit[] = [
     { value: hours, label: 'Hours' },
@@ -60,9 +53,6 @@ export function CountdownTimer({ seconds, size = 'md' }: CountdownTimerProps) {
     <div className={`flex items-center justify-center ${classes.container}`}>
       {timeUnits.map((unit, index) => {
         const displayValue = String(unit.value).padStart(2, '0');
-        const prevValue = String(
-          index === 0 ? prevTime.hours : index === 1 ? prevTime.minutes : prevTime.seconds
-        ).padStart(2, '0');
         
         return (
           <div key={unit.label} className="flex items-center">

@@ -1,29 +1,37 @@
 # HighestVoice Documentation
 
-Complete documentation for deploying and operating the HighestVoice auction system.
+Complete documentation for the HighestVoice decentralized auction platform.
 
-## Getting Started
+## 🚀 Quick Start
 
-New to HighestVoice? Start here:
+**New to HighestVoice? Start here:**
 
-1. **[Deployment Guide](DEPLOYMENT.md)** - Deploy contracts to Local, Sepolia, or Mainnet
-2. **[Automation Guide](AUTOMATION.md)** - Setup Chainlink Automation for auto-settlement
+1. **[Deployment Quick Start](DEPLOYMENT_QUICKSTART.md)** - 5-minute guide to deploy
+2. **[Complete Deployment Guide](DEPLOYMENT_AUTOMATION_COMPLETE_GUIDE.md)** - Full step-by-step guide
+3. **[Architecture Overview](CHAINLINK_AUTOMATION_ARCHITECTURE.md)** - How automation works
 
-## Quick Links
+## 📚 Core Documentation
 
-### Deployment
+### Deployment & Setup
+- **[Deployment Guide](DEPLOYMENT.md)** - Deploy to local, testnet, or mainnet
+- **[Deployment Quick Start](DEPLOYMENT_QUICKSTART.md)** - Fast reference (5 min)
+- **[Complete Deployment & Automation Guide](DEPLOYMENT_AUTOMATION_COMPLETE_GUIDE.md)** - Everything you need (comprehensive)
 
-- [Install Dependencies](DEPLOYMENT.md#installation)
-- [Deploy to Local](DEPLOYMENT.md#deploy-to-local-network)
-- [Deploy to Sepolia](DEPLOYMENT.md#deploy-to-sepolia)
-- [Deploy to Mainnet](DEPLOYMENT.md#deploy-to-mainnet)
-- [Verify Contracts](DEPLOYMENT.md#verify-contracts)
+### Automation & Operations
+- **[Automation Setup](AUTOMATION.md)** - Chainlink Automation details
+- **[Automation Architecture](CHAINLINK_AUTOMATION_ARCHITECTURE.md)** - System diagrams & flow
+- **[Mainnet Optimization](MAINNET_OPTIMIZATION.md)** - RPC optimization for production
 
-### Automation
+### Features & Treasury
+- **[Features Overview](FEATURES.md)** - All platform features
+- **[Treasury System](TREASURY.md)** - 50/50 split explained
+- **[Treasury Implementation](TREASURY_IMPLEMENTATION.md)** - Technical details
+- **[Treasury Quick Start](TREASURY_QUICKSTART.md)** - Fast reference
 
-- [Setup Chainlink Automation](AUTOMATION.md#quick-setup)
-- [Register Upkeep](AUTOMATION.md#registration-steps)
-- [Monitor Settlement](AUTOMATION.md#monitoring)
+### Monitoring
+- **[RPC Monitoring](RPC_MONITORING.md)** - Track RPC usage
+- **[RPC Quick Start](RPC_MONITORING_QUICKSTART.md)** - Monitoring guide
+- **[RPC Proxy Audit](RPC_PROXY_AUDIT.md)** - Security analysis
 - [Fallback Options](AUTOMATION.md#fallback-options)
 
 ## Contract Overview

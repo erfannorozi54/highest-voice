@@ -18,6 +18,12 @@
     "deploy:local": "NETWORK=local node scripts/deploy-and-sync.js",
     "deploy:sepolia": "NETWORK=sepolia node scripts/deploy-and-sync.js",
     "deploy:mainnet": "NETWORK=mainnet node scripts/deploy-and-sync.js",
+    "deploy:arbitrum": "NETWORK=arbitrum node scripts/deploy-and-sync.js",
+    "deploy:arbitrum-sepolia": "NETWORK=arbitrumSepolia node scripts/deploy-and-sync.js",
+    "deploy:polygon": "NETWORK=polygon node scripts/deploy-and-sync.js",
+    "deploy:polygon-mumbai": "NETWORK=polygonMumbai node scripts/deploy-and-sync.js",
+    "deploy:optimism": "NETWORK=optimism node scripts/deploy-and-sync.js",
+    "deploy:base": "NETWORK=base node scripts/deploy-and-sync.js",
     "node:start": "npx hardhat node"
   },
   "repository": {

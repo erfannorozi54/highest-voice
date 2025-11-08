@@ -20,21 +20,82 @@ const NETWORK_CONFIG = {
     chainId: 31337,
     rpcUrl: 'http://127.0.0.1:8545',
     deploymentDir: 'localhost',
-    description: 'Local Hardhat Network'
+    description: 'Local Hardhat Network',
+    envSuffix: '' // Uses base variables
   },
   sepolia: {
     name: 'sepolia',
     chainId: 11155111,
     rpcUrl: `https://sepolia.infura.io/v3/${process.env.INFURA_ID_SEPOLIA}`,
     deploymentDir: 'sepolia',
-    description: 'Sepolia Testnet'
+    description: 'Sepolia Testnet',
+    envSuffix: '_SEPOLIA'
   },
   mainnet: {
     name: 'mainnet',
     chainId: 1,
     rpcUrl: `https://mainnet.infura.io/v3/${process.env.INFURA_ID_MAINNET}`,
     deploymentDir: 'mainnet',
-    description: 'Ethereum Mainnet'
+    description: 'Ethereum Mainnet',
+    envSuffix: '_MAINNET'
+  },
+  // Layer 2 Networks
+  arbitrum: {
+    name: 'arbitrum',
+    chainId: 42161,
+    rpcUrl: process.env.ARBITRUM_RPC_URL || 
+            (process.env.INFURA_ID_MAINNET 
+              ? `https://arbitrum-mainnet.infura.io/v3/${process.env.INFURA_ID_MAINNET}`
+              : 'https://arb1.arbitrum.io/rpc'),
+    deploymentDir: 'arbitrum',
+    description: 'Arbitrum One (L2)',
+    envSuffix: '_ARBITRUM'
+  },
+  arbitrumSepolia: {
+    name: 'arbitrumSepolia',
+    chainId: 421614,
+    rpcUrl: process.env.ARBITRUM_SEPOLIA_RPC_URL || 'https://sepolia-rollup.arbitrum.io/rpc',
+    deploymentDir: 'arbitrumSepolia',
+    description: 'Arbitrum Sepolia Testnet (L2)',
+    envSuffix: '_ARBITRUM_SEPOLIA'
+  },
+  polygon: {
+    name: 'polygon',
+    chainId: 137,
+    rpcUrl: process.env.POLYGON_RPC_URL || 
+            (process.env.INFURA_ID_MAINNET 
+              ? `https://polygon-mainnet.infura.io/v3/${process.env.INFURA_ID_MAINNET}`
+              : 'https://polygon-rpc.com'),
+    deploymentDir: 'polygon',
+    description: 'Polygon (L2)',
+    envSuffix: '_POLYGON'
+  },
+  polygonMumbai: {
+    name: 'polygonMumbai',
+    chainId: 80001,
+    rpcUrl: process.env.POLYGON_MUMBAI_RPC_URL || 'https://rpc-mumbai.maticvigil.com',
+    deploymentDir: 'polygonMumbai',
+    description: 'Polygon Mumbai Testnet (L2)',
+    envSuffix: '_POLYGON_MUMBAI'
+  },
+  optimism: {
+    name: 'optimism',
+    chainId: 10,
+    rpcUrl: process.env.OPTIMISM_RPC_URL || 
+            (process.env.INFURA_ID_MAINNET 
+              ? `https://optimism-mainnet.infura.io/v3/${process.env.INFURA_ID_MAINNET}`
+              : 'https://mainnet.optimism.io'),
+    deploymentDir: 'optimism',
+    description: 'Optimism (L2)',
+    envSuffix: '_OPTIMISM'
+  },
+  base: {
+    name: 'base',
+    chainId: 8453,
+    rpcUrl: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
+    deploymentDir: 'base',
+    description: 'Base (L2)',
+    envSuffix: '_BASE'
   }
 };
 
@@ -49,12 +110,11 @@ function validateNetwork() {
   // Debug: Show environment variable status
   console.log(`\n🔍 Environment Variables Debug:`);
   console.log(`   NETWORK: ${NETWORK}`);
-  if (NETWORK === 'sepolia') {
-    console.log(`   INFURA_ID_SEPOLIA: ${process.env.INFURA_ID_SEPOLIA ? '✅ Set' : '❌ Not set'}`);
-  } else if (NETWORK === 'mainnet') {
-    console.log(`   INFURA_ID_MAINNET: ${process.env.INFURA_ID_MAINNET ? '✅ Set' : '❌ Not set'}`);
+  console.log(`   RPC URL: ${config.rpcUrl.substring(0, 50)}...`);
+  
+  if (NETWORK !== 'local') {
+    console.log(`   PRIVATE_KEY: ${process.env.PRIVATE_KEY ? '✅ Set' : '❌ Not set'}`);
   }
-  console.log(`   PRIVATE_KEY: ${process.env.PRIVATE_KEY ? '✅ Set' : '❌ Not set'}`);
   
   // Check if .env files exist
   const envPath = path.join(__dirname, '../.env');
@@ -66,21 +126,17 @@ function validateNetwork() {
   
   // Validate environment variables for non-local networks
   if (NETWORK !== 'local') {
-    // Check for environment-specific Infura ID
-    if (NETWORK === 'sepolia' && !process.env.INFURA_ID_SEPOLIA) {
-      console.error('\n❌ INFURA_ID_SEPOLIA is required for Sepolia deployment');
-      console.error('   Please add INFURA_ID_SEPOLIA to your .env file');
-      process.exit(1);
-    }
-    if (NETWORK === 'mainnet' && !process.env.INFURA_ID_MAINNET) {
-      console.error('\n❌ INFURA_ID_MAINNET is required for Mainnet deployment');
-      console.error('   Please add INFURA_ID_MAINNET to your .env file');
-      process.exit(1);
-    }
     if (!process.env.PRIVATE_KEY) {
       console.error('\n❌ PRIVATE_KEY is required for non-local networks');
       console.error('   Please add PRIVATE_KEY to your .env file');
       process.exit(1);
+    }
+    
+    // Warn if RPC URL contains undefined (means env var was missing)
+    if (config.rpcUrl.includes('undefined')) {
+      console.warn('\n⚠️  Warning: RPC URL contains "undefined" - check your environment variables');
+      console.warn(`   Network: ${NETWORK}`);
+      console.warn(`   Using fallback public RPC (may have rate limits)`);
     }
   }
 
@@ -96,14 +152,18 @@ function updateEnvFile(contractAddress, keeperAddress, networkConfig) {
     envContent = fs.readFileSync(envPath, 'utf8');
   }
   
-  // Update or add environment variables
-  const updates = {
-    'NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT': contractAddress,
-    'NEXT_PUBLIC_KEEPER_CONTRACT': keeperAddress || '',
-    'NEXT_PUBLIC_NETWORK': NETWORK,
-    'NEXT_PUBLIC_CHAIN_ID': networkConfig.chainId.toString(),
-    'NEXT_PUBLIC_RPC_URL': networkConfig.rpcUrl
-  };
+  // Determine which variables to update based on network
+  const updates = {};
+  
+  if (networkConfig.envSuffix === '') {
+    // Local network - use base variables
+    updates['NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT'] = contractAddress;
+    updates['NEXT_PUBLIC_KEEPER_CONTRACT'] = keeperAddress || '';
+  } else {
+    // Network-specific variables (e.g., _SEPOLIA, _ARBITRUM)
+    updates[`NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT${networkConfig.envSuffix}`] = contractAddress;
+    updates[`NEXT_PUBLIC_KEEPER_CONTRACT${networkConfig.envSuffix}`] = keeperAddress || '';
+  }
 
   Object.entries(updates).forEach(([key, value]) => {
     const regex = new RegExp(`^${key}=.*$`, 'm');
@@ -113,7 +173,7 @@ function updateEnvFile(contractAddress, keeperAddress, networkConfig) {
       // Update existing entry
       envContent = envContent.replace(regex, newEntry);
     } else {
-      // Add new entry
+      // Add new entry at the end
       envContent += `\n${newEntry}`;
     }
   });
@@ -125,9 +185,10 @@ function updateEnvFile(contractAddress, keeperAddress, networkConfig) {
   }
 
   fs.writeFileSync(envPath, envContent.trim() + '\n');
-  console.log(`✅ Updated environment variables in ${envPath}`);
-  console.log(`   Contract: ${contractAddress}`);
-  console.log(`   Keeper: ${keeperAddress || 'Not deployed'}`);
+  console.log(`\n✅ Updated environment variables in ${envPath}`);
+  Object.entries(updates).forEach(([key, value]) => {
+    console.log(`   ${key}=${value}`);
+  });
   console.log(`   Network: ${NETWORK} (Chain ID: ${networkConfig.chainId})`);
 }
 

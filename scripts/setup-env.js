@@ -23,7 +23,7 @@ console.log('══════════════════════�
 async function setupRootEnv() {
   if (fs.existsSync(ROOT_ENV)) {
     console.log('✅ Root .env file already exists');
-    return true;
+    return { success: true, projectId: null };
   }
 
   console.log('📝 Creating root .env file...\n');
@@ -31,35 +31,15 @@ async function setupRootEnv() {
   // Copy from example
   if (!fs.existsSync(ROOT_ENV_EXAMPLE)) {
     console.error('❌ Error: .env.example not found!');
-    return false;
+    return { success: false, projectId: null };
   }
 
   const exampleContent = fs.readFileSync(ROOT_ENV_EXAMPLE, 'utf8');
-  let envContent = exampleContent;
-
-  console.log('For local development, you need a WalletConnect Project ID.');
-  console.log('Get one FREE at: https://cloud.walletconnect.com\n');
-
-  const projectId = await question('Enter your WalletConnect Project ID (or press Enter to skip): ');
-
-  if (projectId && projectId.trim()) {
-    envContent = envContent.replace(
-      /NEXT_PUBLIC_PROJECT_ID=/,
-      `NEXT_PUBLIC_PROJECT_ID=${projectId.trim()}`
-    );
-  } else {
-    console.log('\n⚠️  Warning: No Project ID provided. You can add it later in .env');
-    console.log('   Web3 wallet connections may not work without it.\n');
-  }
-
-  // Set default values for local development
-  envContent = envContent
-    .replace(/NETWORK=/, 'NETWORK=local')
-    .replace(/MNEMONIC=/, 'MNEMONIC=test test test test test test test test test test test junk');
+  const envContent = exampleContent; // No modifications needed for root .env
 
   fs.writeFileSync(ROOT_ENV, envContent);
-  console.log('✅ Created root .env file with local development defaults\n');
-  return true;
+  console.log('✅ Created root .env file with defaults\n');
+  return { success: true, projectId: null };
 }
 
 async function setupUIEnv() {
@@ -78,25 +58,22 @@ async function setupUIEnv() {
   const exampleContent = fs.readFileSync(UI_ENV_EXAMPLE, 'utf8');
   let envContent = exampleContent;
 
-  // Read WalletConnect Project ID from root .env if it exists
-  let projectId = '';
-  if (fs.existsSync(ROOT_ENV)) {
-    const rootEnvContent = fs.readFileSync(ROOT_ENV, 'utf8');
-    const match = rootEnvContent.match(/NEXT_PUBLIC_PROJECT_ID=(.+)/);
-    if (match && match[1]) {
-      projectId = match[1].trim();
-    }
+  // Ask for WalletConnect Project ID
+  console.log('For wallet connections, you need a WalletConnect Project ID.');
+  console.log('Get one FREE at: https://cloud.walletconnect.com\n');
+  
+  const projectId = await question('Enter your WalletConnect Project ID (or press Enter to skip): ');
+
+  if (projectId && projectId.trim()) {
+    envContent = envContent.replace(
+      /NEXT_PUBLIC_PROJECT_ID=/,
+      `NEXT_PUBLIC_PROJECT_ID=${projectId.trim()}`
+    );
+    console.log('\n✅ WalletConnect Project ID configured\n');
+  } else {
+    console.log('\n⚠️  Warning: No Project ID provided. You can add it later in ui/.env');
+    console.log('   Web3 wallet connections may not work without it.\n');
   }
-
-  // Set defaults for local development
-  envContent = envContent
-    .replace(/NEXT_PUBLIC_PROJECT_ID=/, `NEXT_PUBLIC_PROJECT_ID=${projectId}`)
-    .replace(/NEXT_PUBLIC_NETWORK=/, 'NEXT_PUBLIC_NETWORK=local')
-    .replace(/NEXT_PUBLIC_CHAIN_ID=/, 'NEXT_PUBLIC_CHAIN_ID=31337')
-    .replace(/NEXT_PUBLIC_RPC_URL=/, 'NEXT_PUBLIC_RPC_URL=http://127.0.0.1:8545');
-
-  // Add note about contract addresses
-  envContent = '# Contract addresses will be auto-populated by deployment script\n' + envContent;
 
   fs.writeFileSync(UI_ENV, envContent);
   console.log('✅ Created UI .env file\n');
@@ -106,8 +83,8 @@ async function setupUIEnv() {
 
 async function main() {
   try {
-    const rootSuccess = await setupRootEnv();
-    if (!rootSuccess) {
+    const rootResult = await setupRootEnv();
+    if (!rootResult.success) {
       process.exit(1);
     }
 

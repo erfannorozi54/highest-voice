@@ -21,7 +21,7 @@ import { Header } from '@/components/Header';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Spinner } from '@/components/ui/Spinner';
+import { LogoLoader } from '@/components/LogoLoader';
 import { HIGHEST_VOICE_ABI } from '@/contracts/HighestVoiceABI';
 import { getContractAddress } from '@/lib/contracts';
 
@@ -76,7 +76,7 @@ export default function AdminMonitoringPage() {
 
   // Check if user is deployer
   const { data: deployerAddress, isLoading: deployerLoading } = useReadContract({
-    address: contractAddress,
+    address: contractAddress ?? undefined,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'DEPLOYER',
     chainId,
@@ -185,10 +185,7 @@ export default function AdminMonitoringPage() {
   if (!mounted) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
-        <div className="text-center space-y-4">
-          <Spinner size="xl" variant="neon" />
-          <p className="text-gray-400">Loading...</p>
-        </div>
+        <LogoLoader size="xl" message="Loading..." fullScreen />
       </div>
     );
   }
@@ -237,10 +234,7 @@ export default function AdminMonitoringPage() {
   if (isDeployer === null || deployerLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
-        <div className="text-center space-y-4">
-          <Spinner size="xl" variant="neon" />
-          <p className="text-gray-400">Verifying deployer status...</p>
-        </div>
+        <LogoLoader size="xl" message="Verifying deployer status..." fullScreen />
       </div>
     );
   }
@@ -274,7 +268,7 @@ export default function AdminMonitoringPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
         <Card variant="cyber" className="p-12 text-center max-w-md space-y-6">
-          <Spinner size="xl" variant="neon" className="mx-auto" />
+          <LogoLoader size="lg" className="mx-auto" />
           <div className="space-y-2">
             <p className="text-xl font-bold text-white">Requesting Signature</p>
             <p className="text-gray-400">

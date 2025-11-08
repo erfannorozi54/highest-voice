@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { Zap, Trophy, Users, Wallet, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -11,14 +11,13 @@ interface MobileBottomNavProps {
 }
 
 export function MobileBottomNav({ 
-  activeTab = 'home', 
+  activeTab, 
   onTabChange,
   onCreatePost 
 }: MobileBottomNavProps) {
-  const [active, setActive] = useState(activeTab);
+  const pathname = usePathname();
 
   const handleTabClick = (tab: string, href?: string) => {
-    setActive(tab);
     if (href) {
       window.location.href = href;
     }
@@ -29,9 +28,24 @@ export function MobileBottomNav({
     { id: 'home', icon: Zap, label: 'Auction', href: '/' },
     { id: 'leaderboard', icon: Trophy, label: 'Leaderboard', href: '/leaderboard' },
     { id: 'create', icon: Plus, label: 'Bid', isCreate: true },
-    { id: 'nfts', icon: Users, label: 'NFTs', href: '/nfts' },
+    { id: 'nft', icon: Users, label: 'NFTs', href: '/nft' },
     { id: 'portfolio', icon: Wallet, label: 'Portfolio', href: '/portfolio' },
   ];
+
+  // Determine active tab based on pathname
+  const getActiveTab = () => {
+    if (activeTab) return activeTab;
+    
+    const currentTab = tabs.find(tab => {
+      if (!tab.href) return false;
+      if (tab.href === '/') return pathname === '/';
+      return pathname.startsWith(tab.href);
+    });
+    
+    return currentTab?.id || 'home';
+  };
+
+  const active = getActiveTab();
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 md:hidden">
@@ -56,21 +70,24 @@ export function MobileBottomNav({
                 }
               }}
               className={cn(
-                'flex flex-col items-center justify-center p-2 rounded-xl transition-all duration-200',
+                'relative flex flex-col items-center justify-center p-2 rounded-xl transition-all duration-200',
                 isCreate
                   ? 'bg-primary-600 hover:bg-primary-700 scale-110'
                   : isActive
-                  ? 'bg-white/10'
+                  ? 'bg-primary-500/20 border border-primary-500/30'
                   : 'hover:bg-white/5'
               )}
             >
+              {isActive && !isCreate && (
+                <div className="absolute top-1 w-1 h-1 bg-primary-400 rounded-full" />
+              )}
               <Icon 
                 className={cn(
                   'w-5 h-5 mb-1',
                   isCreate
                     ? 'text-white'
                     : isActive
-                    ? 'text-white'
+                    ? 'text-primary-400'
                     : 'text-gray-400'
                 )} 
               />

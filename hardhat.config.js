@@ -46,13 +46,70 @@ module.exports = {
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       gasPrice: 20000000000, // 20 gwei
     },
+    // Layer 2 Networks (Cost-Optimized Options)
+    // Arbitrum (Recommended: 67% cheaper than mainnet)
+    arbitrum: {
+      url: process.env.ARBITRUM_RPC_URL || 
+           (process.env.INFURA_ID_MAINNET 
+             ? `https://arbitrum-mainnet.infura.io/v3/${process.env.INFURA_ID_MAINNET}`
+             : "https://arb1.arbitrum.io/rpc"),
+      chainId: 42161,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      gasPrice: 100000000, // 0.1 gwei typical
+    },
+    // Polygon (Cheapest: 90% cheaper than mainnet)
+    polygon: {
+      url: process.env.POLYGON_RPC_URL || 
+           (process.env.INFURA_ID_MAINNET 
+             ? `https://polygon-mainnet.infura.io/v3/${process.env.INFURA_ID_MAINNET}`
+             : "https://polygon-rpc.com"),
+      chainId: 137,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      gasPrice: 50000000000, // 50 gwei typical
+    },
+    // Optimism
+    optimism: {
+      url: process.env.OPTIMISM_RPC_URL || 
+           (process.env.INFURA_ID_MAINNET 
+             ? `https://optimism-mainnet.infura.io/v3/${process.env.INFURA_ID_MAINNET}`
+             : "https://mainnet.optimism.io"),
+      chainId: 10,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+    },
+    // Base (Coinbase L2)
+    base: {
+      url: process.env.BASE_RPC_URL || 
+           "https://mainnet.base.org",
+      chainId: 8453,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+    },
+    // Testnet for Arbitrum
+    arbitrumSepolia: {
+      url: process.env.ARBITRUM_SEPOLIA_RPC_URL || 
+           "https://sepolia-rollup.arbitrum.io/rpc",
+      chainId: 421614,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+    },
+    // Testnet for Polygon
+    polygonMumbai: {
+      url: process.env.POLYGON_MUMBAI_RPC_URL || 
+           "https://rpc-mumbai.maticvigil.com",
+      chainId: 80001,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+    },
   },
   namedAccounts: {
     deployer: {
-      default: 0, // Use the first account as deployer
-      localhost: 0, // Use account index 0 on localhost
-      sepolia: 0, // Use account index 0 on sepolia
-      mainnet: 0, // Use account index 0 on mainnet
+      default: 0,
+      localhost: 0,
+      sepolia: 0,
+      mainnet: 0,
+      arbitrum: 0,
+      polygon: 0,
+      optimism: 0,
+      base: 0,
+      arbitrumSepolia: 0,
+      polygonMumbai: 0,
     },
   },
   // Gas settings
@@ -60,8 +117,13 @@ module.exports = {
     enabled: process.env.REPORT_GAS !== undefined,
     currency: "USD",
   },
-  // Etherscan verification
+  // Block Explorer verification (Etherscan V2 API)
   etherscan: {
-    apiKey: process.env.ETHERSCAN_API_KEY,
+    // Use single API key (V2 format)
+    apiKey: process.env.ETHERSCAN_API_KEY || "",
+  },
+  // Sourcify verification (optional)
+  sourcify: {
+    enabled: false
   },
 };

@@ -4,7 +4,8 @@ import { forwardRef } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
-interface BadgeProps extends React.HTMLAttributes<HTMLDivElement> {
+interface BadgeProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 
+  'onAnimationStart' | 'onAnimationEnd' | 'onDragStart' | 'onDragEnd' | 'onDrag'> {
   variant?: 'default' | 'primary' | 'secondary' | 'success' | 'warning' | 'error' | 'gold' | 'neon';
   size?: 'sm' | 'md' | 'lg';
   pulse?: boolean;
@@ -36,29 +37,38 @@ const Badge = forwardRef<HTMLDivElement, BadgeProps>(
     const pulseClasses = pulse ? 'animate-pulse' : '';
     const glowClasses = glow ? 'shadow-glow' : '';
 
-    const BadgeComponent = animate ? motion.div : 'div';
-    const animationProps = animate ? {
-      initial: { opacity: 0, scale: 0.8 },
-      animate: { opacity: 1, scale: 1 },
-      transition: { type: 'spring', stiffness: 500, damping: 30 },
-    } : {};
+    const badgeClassName = cn(
+      baseClasses,
+      variants[variant],
+      sizes[size],
+      pulseClasses,
+      glowClasses,
+      className
+    );
+
+    if (animate) {
+      return (
+        <motion.div
+          ref={ref}
+          className={badgeClassName}
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+          {...props}
+        >
+          {children}
+        </motion.div>
+      );
+    }
 
     return (
-      <BadgeComponent
+      <div
         ref={ref}
-        className={cn(
-          baseClasses,
-          variants[variant],
-          sizes[size],
-          pulseClasses,
-          glowClasses,
-          className
-        )}
-        {...animationProps}
+        className={badgeClassName}
         {...props}
       >
         {children}
-      </BadgeComponent>
+      </div>
     );
   }
 );

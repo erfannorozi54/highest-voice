@@ -11,7 +11,7 @@ import { LegendaryHolder } from '@/components/LegendaryHolder';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Spinner } from '@/components/ui/Spinner';
+import { LogoLoader } from '@/components/LogoLoader';
 import { useLeaderboard, useLegendaryToken } from '@/hooks/useHighestVoice';
 import { truncateAddress } from '@/lib/utils';
 import { cn } from '@/lib/utils';
@@ -69,10 +69,7 @@ export default function LeaderboardPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
-        <div className="text-center space-y-4">
-          <Spinner size="xl" variant="neon" />
-          <p className="text-gray-400">Loading leaderboard...</p>
-        </div>
+        <LogoLoader size="xl" message="Loading leaderboard..." fullScreen />
       </div>
     );
   }

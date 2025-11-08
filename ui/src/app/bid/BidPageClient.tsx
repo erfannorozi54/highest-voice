@@ -5,35 +5,33 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Check, Sparkles, AlertCircle, Shield } from 'lucide-react';
+import { ArrowLeft, Check, AlertCircle, Shield, Zap } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { BlockchainParticles } from '@/components/BlockchainParticles';
 import { HexagonGrid } from '@/components/HexagonGrid';
 import { FreedomHeader } from '@/components/FreedomHeader';
+import { MyBidStatus } from '@/components/MyBidStatus';
 import { BidForm } from './BidForm';
-import { useAuctionInfo } from '@/hooks/useHighestVoice';
+import { LogoLoader } from '@/components/LogoLoader';
+import { useAuctionInfo, useUserCommitStatus } from '@/hooks/useHighestVoice';
 
 export function BidPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const mode = (searchParams.get('mode') as 'commit' | 'reveal') || 'commit';
+  const mode = (searchParams.get('mode') as 'commit' | 'reveal' | 'track') || 'commit';
   
   const { address } = useAccount();
   const { auctionInfo, isLoading: auctionLoading } = useAuctionInfo();
+  const { hasCommitted } = useUserCommitStatus(auctionInfo?.id, address);
   const [showSuccess, setShowSuccess] = useState(false);
 
   if (auctionLoading) {
     return (
       <div className="min-h-screen bg-[#0a0e1a] flex items-center justify-center">
         <BlockchainParticles />
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-        >
-          <Sparkles className="w-12 h-12 text-cyan-400" />
-        </motion.div>
+        <LogoLoader size="lg" message="Loading auction..." />
       </div>
     );
   }
@@ -96,7 +94,7 @@ export function BidPageClient() {
                   </div>
 
                   <Button
-                    onClick={() => router.push('/')}
+                    onClick={() => router.push('/?refresh=commit')}
                     variant="cyber"
                     className="w-full"
                     glow
@@ -144,10 +142,10 @@ export function BidPageClient() {
                 <p className="text-lg font-bold text-cyan-400 capitalize">{auctionInfo.phase}</p>
               </div>
               <Badge 
-                variant={mode === 'commit' ? 'warning' : 'success'}
+                variant={mode === 'commit' ? 'warning' : mode === 'reveal' ? 'success' : 'primary'}
                 className="text-xs"
               >
-                {mode === 'commit' ? 'Committing' : 'Revealing'}
+                {mode === 'commit' ? 'Committing' : mode === 'reveal' ? 'Revealing' : 'Tracking'}
               </Badge>
             </div>
           </Card>
@@ -163,17 +161,75 @@ export function BidPageClient() {
           </Card>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-        >
-          <BidForm 
-            mode={mode} 
-            auctionInfo={auctionInfo} 
-            onSuccess={() => setShowSuccess(true)}
-          />
-        </motion.div>
+        {/* My Bid Status */}
+        {address && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="mb-6"
+          >
+            <MyBidStatus
+              auctionId={auctionInfo.id}
+              address={address}
+              phase={auctionInfo.phase}
+              hasCommitted={hasCommitted}
+              onRevealClick={auctionInfo.phase === 'reveal' ? () => router.push('/bid?mode=reveal') : undefined}
+            />
+          </motion.div>
+        )}
+
+        {/* Show form only for commit and reveal modes */}
+        {mode !== 'track' && (
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+          >
+            <BidForm 
+              mode={mode as 'commit' | 'reveal'} 
+              auctionInfo={auctionInfo} 
+              onSuccess={() => setShowSuccess(true)}
+            />
+          </motion.div>
+        )}
+
+        {/* For track mode, show helpful message */}
+        {mode === 'track' && (
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+          >
+            <Card variant="glass" className="p-6 text-center">
+              <div className="space-y-4">
+                <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-br from-primary-500/20 to-secondary-500/20 flex items-center justify-center border-2 border-primary-500/30">
+                  <Check className="w-8 h-8 text-primary-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white mb-2">Bid Successfully Committed</h3>
+                  <p className="text-sm text-gray-400">
+                    Your bid is securely stored on the blockchain. 
+                    {auctionInfo.phase === 'commit' 
+                      ? ' Wait for the reveal phase to unlock and compete!'
+                      : ' You can now reveal your bid to compete for the win!'}
+                  </p>
+                </div>
+                {auctionInfo.phase === 'reveal' && (
+                  <Button
+                    onClick={() => router.push('/bid?mode=reveal')}
+                    variant="cyber"
+                    className="mx-auto"
+                    glow
+                  >
+                    <Zap className="w-4 h-4 mr-2" />
+                    Reveal Bid Now
+                  </Button>
+                )}
+              </div>
+            </Card>
+          </motion.div>
+        )}
       </div>
     </div>
   );

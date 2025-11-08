@@ -12,8 +12,20 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   const protocolGuildAddresses = {
     // Mainnet: Protocol Guild split contract
     1: "0xF29Ff96aaEa6C9A1fBa851f74737f3c069d4f1a9",
+    // Arbitrum: Protocol Guild on Arbitrum
+    42161: "0xF29Ff96aaEa6C9A1fBa851f74737f3c069d4f1a9",
+    // Polygon: Protocol Guild on Polygon
+    137: "0xF29Ff96aaEa6C9A1fBa851f74737f3c069d4f1a9",
+    // Optimism: Protocol Guild on Optimism
+    10: "0xF29Ff96aaEa6C9A1fBa851f74737f3c069d4f1a9",
+    // Base: Protocol Guild on Base
+    8453: "0xF29Ff96aaEa6C9A1fBa851f74737f3c069d4f1a9",
     // Sepolia: Use a test address (replace with your test wallet)
     11155111: process.env.TEST_PROTOCOL_GUILD || deployer,
+    // Arbitrum Sepolia: Test address
+    421614: process.env.TEST_PROTOCOL_GUILD || deployer,
+    // Polygon Mumbai: Test address
+    80001: process.env.TEST_PROTOCOL_GUILD || deployer,
     // Local: Use deployer as test
     31337: deployer,
   };

@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { Zap, Trophy, Users, TrendingUp, Settings, Crown, Sparkles, ArrowRight, Timer, Check } from 'lucide-react';
+import { Zap, Trophy, Users, TrendingUp, Settings, Crown, ArrowRight, Timer, Check } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { MobileHeader } from '@/components/MobileHeader';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
@@ -12,11 +12,10 @@ import { AuctionStatus } from '@/components/AuctionStatus';
 import { WinnersFeed } from '@/components/WinnersFeed';
 import { BidModal } from '@/components/BidModal';
 import { LegendaryHolder } from '@/components/LegendaryHolder';
-import { MyBidStatus } from '@/components/MyBidStatus';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Spinner } from '@/components/ui/Spinner';
+import { LogoLoader } from '@/components/LogoLoader';
 import { StepIndicator } from '@/components/ui/StepIndicator';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { CountdownTimer } from '@/components/CountdownTimer';
@@ -27,6 +26,8 @@ import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 export default function HomePage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { address, isConnected } = useAccount();
   const { auctionInfo, isLoading: auctionLoading } = useCurrentAuction();
   const { stats } = useUserStats(address);
@@ -40,13 +41,14 @@ export default function HomePage() {
   const [existingCommit, setExistingCommit] = useState<any>(null);
   const [activeTab, setActiveTab] = useState('home');
   const [currentTime, setCurrentTime] = useState(Math.floor(Date.now() / 1000));
+  const hasRefreshed = useRef(false);
 
   // Track completed steps for "How it works" section
   const getCompletedSteps = () => {
     const steps = {
       connectWallet: isConnected,
-      commitBid: !!(existingCommit && existingCommit.commitHash),
-      reveal: !!(existingCommit && existingCommit.revealed),
+      commitBid: hasCommitted, // Use on-chain commit status
+      reveal: false, // TODO: Add on-chain reveal check
       win: !!(stats && Number(stats.totalWins) > 0),
     };
     return steps;
@@ -55,8 +57,25 @@ export default function HomePage() {
   const completedSteps = getCompletedSteps();
   const completedCount = Object.values(completedSteps).filter(Boolean).length;
 
-  // Watch for contract events
-  useHighestVoiceEvents();
+  // Watch for contract events (optimized - only watches relevant events per phase)
+  useHighestVoiceEvents({ 
+    enabled: true,
+    currentPhase: auctionInfo?.phase 
+  });
+
+  // Refetch commit status when returning from bid page
+  useEffect(() => {
+    const refresh = searchParams.get('refresh');
+    if (refresh === 'commit' && !hasRefreshed.current) {
+      hasRefreshed.current = true;
+      // Small delay to ensure blockchain state is updated
+      setTimeout(() => {
+        refetchCommitStatus();
+        // Clean up URL
+        router.replace('/', { scroll: false });
+      }, 500);
+    }
+  }, [searchParams, refetchCommitStatus, router]);
 
   // Update countdown timer every second
   useEffect(() => {
@@ -65,16 +84,6 @@ export default function HomePage() {
     }, 1000);
     return () => clearInterval(interval);
   }, []);
-
-  // Load existing commit from localStorage
-  useEffect(() => {
-    if (address && auctionInfo) {
-      const saved = localStorage.getItem(`commit_${auctionInfo.id}_${address}`);
-      if (saved) {
-        setExistingCommit(JSON.parse(saved));
-      }
-    }
-  }, [address, auctionInfo]);
 
   // Calculate real-time remaining seconds
   const getRemainingTime = () => {
@@ -111,9 +120,7 @@ export default function HomePage() {
         console.error('Failed to parse commit data:', error);
       }
     }
-  }, [address, auctionInfo]);
-
-  const router = useRouter();
+  }, [address, auctionInfo?.id]);
 
   const handleModalClose = () => {
     setBidModalOpen(false);
@@ -144,6 +151,25 @@ export default function HomePage() {
     
     // Route to bid page in commit mode
     router.push('/bid?mode=commit');
+  };
+
+  const handleViewBid = () => {
+    console.log('handleViewBid called', { isConnected, auctionInfo, hasCommitted });
+    
+    if (!isConnected) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+    
+    if (!auctionInfo) {
+      toast.error('Auction data not loaded');
+      console.error('Cannot view bid: auctionInfo is undefined');
+      return;
+    }
+    
+    console.log('Navigating to /bid?mode=track');
+    // Route to bid tracking page
+    router.push('/bid?mode=track');
   };
 
   const handleTipWinner = () => {
@@ -228,12 +254,8 @@ export default function HomePage() {
 
   if (auctionLoading && !loadingTimeout) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <Spinner size="xl" variant="neon" />
-          <p className="text-gray-400">Loading auction data...</p>
-          
-        </div>
+      <div className="min-h-screen bg-[#0a0e1a] flex items-center justify-center">
+        <LogoLoader size="xl" message="Loading HighestVoice..." fullScreen />
       </div>
     );
   }
@@ -272,17 +294,6 @@ export default function HomePage() {
                 holder={legendaryData.holder}
                 auctionId={legendaryData.auctionId}
                 tipAmount={legendaryData.tipAmount}
-              />
-            )}
-
-            {/* My Bid Status - Show if user is connected */}
-            {isConnected && address && auctionInfo && (
-              <MyBidStatus
-                auctionId={auctionInfo.id}
-                address={address}
-                phase={auctionInfo.phase}
-                hasCommitted={hasCommitted}
-                onRevealClick={handleRevealBid}
               />
             )}
 
@@ -365,13 +376,22 @@ export default function HomePage() {
                 </div>
 
                 <Button 
-                  onClick={auctionInfo.phase === 'commit' ? handleCommitBid : handleRevealBid}
+                  onClick={
+                    !auctionInfo ? undefined :
+                    auctionInfo.phase === 'commit' 
+                      ? (hasCommitted ? handleViewBid : handleCommitBid)
+                      : handleRevealBid
+                  }
+                  disabled={!isConnected || !auctionInfo}
                   className="w-full bg-gradient-to-r from-primary-600 to-secondary-600 hover:from-primary-700 hover:to-secondary-700 text-white shadow-lg touch-manipulation"
                   size="lg"
                   glow
                 >
                   <Zap className="w-5 h-5 mr-2" />
-                  {auctionInfo.phase === 'commit' ? 'Submit Voice' : 'Reveal Bid'}
+                  {auctionInfo.phase === 'commit' 
+                    ? (hasCommitted ? 'View My Bid' : 'Submit Voice')
+                    : 'Reveal Bid'
+                  }
                 </Button>
               </Card>
             )}
@@ -451,16 +471,21 @@ export default function HomePage() {
                     {/* Action Button - Compact */}
                     {auctionInfo && !completedSteps.win && (
                       <Button 
-                        onClick={auctionInfo.phase === 'commit' ? handleCommitBid : handleRevealBid}
+                        onClick={
+                          auctionInfo.phase === 'commit'
+                            ? (hasCommitted ? handleViewBid : handleCommitBid)
+                            : handleRevealBid
+                        }
                         variant="cyber"
                         size="sm"
-                        disabled={!completedSteps.connectWallet}
+                        disabled={!completedSteps.connectWallet || !auctionInfo}
                         glow
                         className="w-full"
                       >
                         <Zap className="w-3 h-3 mr-2" />
                         {!completedSteps.connectWallet && 'Connect Wallet'}
                         {completedSteps.connectWallet && !completedSteps.commitBid && auctionInfo.phase === 'commit' && 'Commit Bid'}
+                        {completedSteps.commitBid && auctionInfo.phase === 'commit' && 'View My Bid'}
                         {completedSteps.commitBid && !completedSteps.reveal && auctionInfo.phase === 'reveal' && 'Reveal Bid'}
                         {completedSteps.connectWallet && auctionInfo.phase !== 'commit' && auctionInfo.phase !== 'reveal' && 'Waiting...'}
                       </Button>
@@ -515,17 +540,6 @@ export default function HomePage() {
                   holder={legendaryData.holder}
                   auctionId={legendaryData.auctionId}
                   tipAmount={legendaryData.tipAmount}
-                />
-              )}
-
-              {/* My Bid Status - Show if user is connected */}
-              {isConnected && address && auctionInfo && (
-                <MyBidStatus
-                  auctionId={auctionInfo.id}
-                  address={address}
-                  phase={auctionInfo.phase}
-                  hasCommitted={hasCommitted}
-                  onRevealClick={handleRevealBid}
                 />
               )}
 

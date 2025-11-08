@@ -2,6 +2,10 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Providers } from './providers';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { UnsupportedNetworkBanner } from '@/components/UnsupportedNetworkBanner';
+
+// Force dynamic rendering for the entire app (Web3 app with wallet integration)
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'HighestVoice - Decentralized Voice Auction',
@@ -54,6 +58,9 @@ export default function RootLayout({
       >
         <Providers>
           <ErrorBoundary>
+            {/* Network Warning Banner */}
+            <UnsupportedNetworkBanner />
+            
             <div className="relative min-h-screen">
               {/* Background Effects */}
               <div className="fixed inset-0 -z-10">

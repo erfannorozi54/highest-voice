@@ -32,6 +32,16 @@ export function WinnerPost({
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
 
+  // Cleanup audio element on unmount (must be called before any early returns)
+  useEffect(() => {
+    return () => {
+      if (audioElement) {
+        audioElement.pause();
+        audioElement.src = '';
+      }
+    };
+  }, [audioElement]);
+
   // Debug logging
   console.log('WinnerPost - post:', post);
   console.log('WinnerPost - auctionId:', auctionId);
@@ -79,16 +89,6 @@ export function WinnerPost({
       }
     }
   };
-
-  // Cleanup audio element on unmount
-  useEffect(() => {
-    return () => {
-      if (audioElement) {
-        audioElement.pause();
-        audioElement.src = '';
-      }
-    };
-  }, [audioElement]);
 
   // Always show full text - no truncation
   const fullText = post.text || '';
