@@ -1,6 +1,6 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { formatEther, parseEther, keccak256, encodePacked } from 'viem';
+import { formatEther, parseEther, keccak256, encodeAbiParameters, parseAbiParameters } from 'viem';
 import { BidCommitData } from '@/types';
 
 export function cn(...inputs: ClassValue[]) {
@@ -64,10 +64,11 @@ export function generateSalt(): string {
 }
 
 // Generate commit hash for sealed bids
+// MUST match contract's: keccak256(abi.encode(bidAmount, text, imageCid, voiceCid, salt))
 export function generateCommitHash(data: BidCommitData): `0x${string}` {
   return keccak256(
-    encodePacked(
-      ['uint256', 'string', 'string', 'string', 'bytes32'],
+    encodeAbiParameters(
+      parseAbiParameters('uint256 bidAmount, string text, string imageCid, string voiceCid, bytes32 salt'),
       [
         data.bidAmount,
         data.text,
