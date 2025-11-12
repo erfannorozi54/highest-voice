@@ -270,12 +270,19 @@ export function useHighestVoiceWrite() {
     additionalCollateral?: string
   ): Promise<`0x${string}`> => {
     if (!contractAddress) throw new Error('Contract not deployed on this network');
+    
+    // Parse additional collateral, default to 0 if not provided
+    const valueToSend = additionalCollateral && additionalCollateral !== '0' 
+      ? parseEther(additionalCollateral) 
+      : BigInt(0);
+    
     return writeContractAsync({
       address: contractAddress,
       abi: HIGHEST_VOICE_ABI,
       functionName: 'revealBid',
       args: [parseEther(bidAmount), text, imageCid, voiceCid, salt],
-      value: additionalCollateral ? parseEther(additionalCollateral) : undefined,
+      value: valueToSend,
+      gas: BigInt(500000), // Set reasonable gas limit for reveal transaction
     });
   };
 

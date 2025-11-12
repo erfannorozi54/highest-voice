@@ -120,6 +120,7 @@ export default function HomePage() {
         console.error('Failed to parse commit data:', error);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, auctionInfo?.id]);
 
   const handleModalClose = () => {

@@ -75,8 +75,12 @@ function checkRateLimit(key: string) {
 function getUpstreamUrl(chainId: string | null): { url: string; credentials: { id?: string; secret?: string } } | null {
   if (!chainId) return null
   
-  // Local Hardhat
+  // Local Hardhat (only in development)
   if (chainId === '31337') {
+    // Disable localhost in production
+    if (process.env.NODE_ENV === 'production') {
+      return null
+    }
     return { url: 'http://127.0.0.1:8545', credentials: {} }
   }
   

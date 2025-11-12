@@ -27,7 +27,8 @@ const calculateRemainingAmount = (bidAmount: string, collateral: string): bigint
     const bidWei = parseEther(bidAmount);
     const collateralWei = parseEther(collateral);
     const remaining = bidWei - collateralWei;
-    return remaining > BigInt(0) ? remaining : null;
+    // Return 0 if remaining is 0 or negative, null only on error
+    return remaining >= BigInt(0) ? remaining : BigInt(0);
   } catch {
     return null;
   }
@@ -82,7 +83,7 @@ export function BidForm({ mode, auctionInfo, onSuccess }: BidFormProps) {
       
       if (existingCommit.bidAmount && existingCommit.collateral) {
         const remaining = calculateRemainingAmount(existingCommit.bidAmount, existingCommit.collateral);
-        if (remaining) setAdditionalCollateral(formatETH(remaining));
+        if (remaining !== null) setAdditionalCollateral(formatETH(remaining));
       }
     }
   }, [existingCommit]);
@@ -165,7 +166,7 @@ export function BidForm({ mode, auctionInfo, onSuccess }: BidFormProps) {
         
         if (data.bidAmount && data.collateral) {
           const remaining = calculateRemainingAmount(data.bidAmount, data.collateral);
-          if (remaining) setAdditionalCollateral(formatETH(remaining));
+          if (remaining !== null) setAdditionalCollateral(formatETH(remaining));
         }
 
         setUploadedData(data);
@@ -251,9 +252,14 @@ export function BidForm({ mode, auctionInfo, onSuccess }: BidFormProps) {
     }
 
     if (mode === 'reveal' && additionalCollateral) {
-      const additionalValidation = validateETHAmount(additionalCollateral);
-      if (!additionalValidation.isValid) {
-        newErrors.additionalCollateral = additionalValidation.error!;
+      // Allow zero or positive amounts for remaining payment
+      try {
+        const amount = parseEther(additionalCollateral);
+        if (amount < BigInt(0)) {
+          newErrors.additionalCollateral = 'Amount cannot be negative';
+        }
+      } catch {
+        newErrors.additionalCollateral = 'Invalid amount format';
       }
     }
 
@@ -612,7 +618,7 @@ export function BidForm({ mode, auctionInfo, onSuccess }: BidFormProps) {
         {mode === 'reveal' && (
           <div>
             <label className="block text-sm font-semibold text-gray-300 mb-2">
-              💸 Additional Payment (ETH)
+              💸 Remaining Payment (ETH)
             </label>
             <Input
               type="text"
@@ -645,7 +651,7 @@ export function BidForm({ mode, auctionInfo, onSuccess }: BidFormProps) {
                       {(() => {
                         try {
                           const remaining = calculateRemainingAmount(existingCommit.bidAmount, existingCommit.collateral);
-                          return remaining ? formatETH(remaining) : '0.00';
+                          return remaining !== null ? formatETH(remaining) : '0.00';
                         } catch {
                           return '0.00';
                         }
@@ -654,7 +660,7 @@ export function BidForm({ mode, auctionInfo, onSuccess }: BidFormProps) {
                   </div>
                 </div>
                 <p className="text-xs text-gray-500 mt-2">
-                  💡 Use this exact amount above, or any amount ≥ remaining
+                  💡 Enter this exact amount above (0 is valid if fully paid)
                 </p>
               </div>
             )}

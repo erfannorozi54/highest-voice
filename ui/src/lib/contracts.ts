@@ -3,8 +3,8 @@ import { Address } from 'viem';
 // Contract addresses by network
 export const CONTRACT_ADDRESSES = {
   31337: { // Localhost
-    highestVoice: (process.env.NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT || '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512') as Address,
-    keeper: (process.env.NEXT_PUBLIC_KEEPER_CONTRACT || '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0') as Address,
+    highestVoice: process.env.NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT as Address || '0x',
+    keeper: process.env.NEXT_PUBLIC_KEEPER_CONTRACT as Address || '0x',
   },
   11155111: { // Sepolia
     highestVoice: process.env.NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_SEPOLIA as Address || '0x',

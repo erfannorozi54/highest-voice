@@ -22,6 +22,248 @@ Your project has **API routes** that require a Node.js server:
 
 ---
 
+## 📦 Step 0: Build & Transfer to VPS
+
+Before deploying with any of the options below, you need to build the project locally and transfer it to your VPS.
+
+### **0.1: Build Project Locally**
+
+```bash
+# Navigate to UI directory
+cd ui
+
+# Install dependencies (if not already done)
+npm install
+
+# Build the production version
+npm run build
+
+# This creates:
+# - .next/          (Next.js build output)
+# - .next/static/   (Static assets)
+# - node_modules/   (Dependencies)
+```
+
+---
+
+### **0.2: Package Files for Transfer**
+
+Create a tarball with only the necessary files:
+
+```bash
+# Go to project root
+cd /home/erfan/Projects/highest-voice
+
+# Create deployment package
+tar -czf highest-voice-deploy.tar.gz \
+  --exclude='ui/node_modules' \
+  --exclude='ui/.next/cache' \
+  --exclude='ui/.git' \
+  --exclude='ui/.env*' \
+  ui/.next \
+  ui/public \
+  ui/package.json \
+  ui/next.config.js \
+  ui/postcss.config.js \
+  ui/tailwind.config.js
+
+# Check the archive size
+ls -lh highest-voice-deploy.tar.gz
+```
+
+**What's included:**
+
+- ✅ `.next/` - Built application
+- ✅ `public/` - Static assets
+- ✅ `package.json` - Dependencies list
+- ✅ `next.config.js` - Next.js configuration
+- ✅ `postcss.config.js` & `tailwind.config.js` - CSS configuration
+
+**What's excluded:**
+
+- ❌ `node_modules/` - Will install on VPS
+- ❌ `.next/cache/` - Build cache (not needed)
+- ❌ `.env*` files - Environment variables set via systemd
+- ❌ `server.js` - Will create on VPS if needed (Option 1 only)
+
+---
+
+### **0.3: Transfer to VPS**
+
+```bash
+# Replace with your VPS details
+VPS_IP="your.vps.ip.address"
+VPS_USER="root"  # or your username
+
+# Transfer the tarball
+scp highest-voice-deploy.tar.gz ${VPS_USER}@${VPS_IP}:/tmp/
+
+# Verify transfer
+ssh ${VPS_USER}@${VPS_IP} "ls -lh /tmp/highest-voice-deploy.tar.gz"
+```
+
+**Alternative: Using rsync (if you prefer):**
+
+```bash
+rsync -avz --progress \
+  highest-voice-deploy.tar.gz \
+  ${VPS_USER}@${VPS_IP}:/tmp/
+```
+
+---
+
+### **0.4: VPS Initial Setup**
+
+SSH into your VPS and set up the required software:
+
+```bash
+# SSH into VPS
+ssh ${VPS_USER}@${VPS_IP}
+
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install Node.js 18.x (LTS)
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Verify Node.js installation
+node --version  # Should show v18.x.x
+npm --version
+
+# Install nginx
+sudo apt install -y nginx
+
+# Install other utilities
+sudo apt install -y git curl wget vim
+
+# Create deployment directory
+sudo mkdir -p /var/www/highest-voice
+
+# Set proper ownership for nginx and Node.js service
+# Both nginx and the systemd service run as www-data
+sudo chown -R www-data:www-data /var/www/highest-voice
+
+# Set proper permissions
+# 755 for directories (rwxr-xr-x) - owner can write, others can read/execute
+# 644 for files (rw-r--r--) - owner can write, others can read
+sudo chmod -R 755 /var/www/highest-voice
+```
+
+**Important:** Files will be owned by `www-data:www-data` so nginx and the Node.js service can access them.
+
+---
+
+### **0.5: Extract and Setup on VPS**
+
+```bash
+# Still on VPS
+
+# Extract the tarball as root
+cd /var/www/highest-voice
+tar -xzf /tmp/highest-voice-deploy.tar.gz
+
+# Fix ownership after extraction (files extracted by root will be owned by root)
+sudo chown -R www-data:www-data /var/www/highest-voice
+
+# Install production dependencies as www-data user
+cd ui
+sudo -u www-data npm install --production
+
+# Note: This will generate package-lock.json automatically
+
+# If using Option 1 (Hybrid), create server.js
+# (Skip this if using Option 2 - Full Proxy)
+cat > server.js << 'EOF'
+const { createServer } = require('http')
+const { parse } = require('url')
+const next = require('next')
+
+const dev = process.env.NODE_ENV !== 'production'
+const hostname = 'localhost'
+const port = parseInt(process.env.PORT || '3000', 10)
+
+const app = next({ dev, hostname, port })
+const handle = app.getRequestHandler()
+
+app.prepare().then(() => {
+  createServer(async (req, res) => {
+    try {
+      const parsedUrl = parse(req.url, true)
+      
+      // Only handle API routes
+      if (parsedUrl.pathname.startsWith('/api/')) {
+        await handle(req, res, parsedUrl)
+      } else {
+        // Reject non-API requests (nginx handles static files)
+        res.statusCode = 404
+        res.end('Not Found')
+      }
+    } catch (err) {
+      console.error('Error occurred handling', req.url, err)
+      res.statusCode = 500
+      res.end('internal server error')
+    }
+  }).listen(port, (err) => {
+    if (err) throw err
+    console.log(`> API server ready on http://${hostname}:${port}`)
+  })
+})
+EOF
+
+# Fix ownership of server.js
+sudo chown www-data:www-data server.js
+
+# Verify the build
+ls -la .next/
+ls -la public/
+
+# Test that server starts (Ctrl+C to stop)
+# For Option 1: node server.js
+# For Option 2: npm start
+npm start
+# Should show: ✓ Ready on http://localhost:3000
+```
+
+**Note:** Environment variables will be set via systemd service (configured in deployment options below).
+
+---
+
+### **0.6: Configure Firewall**
+
+```bash
+# Allow SSH (important - don't lock yourself out!)
+sudo ufw allow ssh
+sudo ufw allow 22/tcp
+
+# Allow HTTP and HTTPS
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+
+# Enable firewall
+sudo ufw --force enable
+
+# Check status
+sudo ufw status
+```
+
+---
+
+### **0.7: Quick Verification Checklist**
+
+Before proceeding to deployment options:
+
+- [ ] ✅ Node.js installed (v18+): `node --version`
+- [ ] ✅ Nginx installed: `nginx -v`
+- [ ] ✅ Files extracted to `/var/www/highest-voice/ui/`
+- [ ] ✅ `.next/` directory exists with build files
+- [ ] ✅ `node_modules/` installed (production only)
+- [ ] ✅ `server.js` created (if using Option 1)
+- [ ] ✅ Firewall configured (ports 22, 80, 443 open)
+- [ ] ✅ Have all environment variable values ready (for systemd config)
+
+---
+
 ## ✅ Recommended Deployment Strategies
 
 ### **Option 1: Hybrid (Static Frontend + API Backend)** ⭐ RECOMMENDED
@@ -171,9 +413,33 @@ Type=simple
 User=www-data
 WorkingDirectory=/var/www/highest-voice/ui
 Environment="NODE_ENV=production"
-Environment="PINATA_JWT=your_pinata_jwt"
-Environment="INFURA_ID_SEPOLIA=your_infura_id"
-Environment="INFURA_SECRET_SEPOLIA=your_infura_secret"
+
+# WalletConnect Configuration (REQUIRED for wallet connections)
+Environment="NEXT_PUBLIC_PROJECT_ID=your_walletconnect_project_id"
+
+# Infura RPC Configuration (Server-side)
+Environment="INFURA_ID_SEPOLIA=your_infura_id_sepolia"
+Environment="INFURA_SECRET_SEPOLIA=your_infura_secret_sepolia"
+Environment="INFURA_ID_MAINNET=your_infura_id_mainnet"
+Environment="INFURA_SECRET_MAINNET=your_infura_secret_mainnet"
+
+# IPFS/Pinata Configuration (Server-side)
+Environment="PINATA_JWT=your_pinata_jwt_token"
+Environment="PINATA_GATEWAY=https://your-gateway.mypinata.cloud"
+
+# Contract Addresses (Public - set based on your deployment)
+# Arbitrum Sepolia Testnet
+Environment="NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_ARBITRUM_SEPOLIA=0x..."
+Environment="NEXT_PUBLIC_KEEPER_CONTRACT_ARBITRUM_SEPOLIA=0x..."
+
+# Arbitrum One Mainnet (if deployed)
+Environment="NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_ARBITRUM=0x..."
+Environment="NEXT_PUBLIC_KEEPER_CONTRACT_ARBITRUM=0x..."
+
+# Add other network contracts as needed:
+# Environment="NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_MAINNET=0x..."
+# Environment="NEXT_PUBLIC_KEEPER_CONTRACT_MAINNET=0x..."
+
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
 RestartSec=10
@@ -279,16 +545,77 @@ Type=simple
 User=www-data
 WorkingDirectory=/var/www/highest-voice/ui
 Environment="NODE_ENV=production"
-Environment="PINATA_JWT=your_pinata_jwt"
-Environment="INFURA_ID_SEPOLIA=your_infura_id"
-Environment="INFURA_SECRET_SEPOLIA=your_infura_secret"
-Environment="PORT=3000"
+Environment="PORT=3001"
+
+# WalletConnect Configuration (REQUIRED for wallet connections)
+Environment="NEXT_PUBLIC_PROJECT_ID=your_walletconnect_project_id"
+
+# Infura RPC Configuration (Server-side)
+Environment="INFURA_ID_SEPOLIA=your_infura_id_sepolia"
+Environment="INFURA_SECRET_SEPOLIA=your_infura_secret_sepolia"
+Environment="INFURA_ID_MAINNET=your_infura_id_mainnet"
+Environment="INFURA_SECRET_MAINNET=your_infura_secret_mainnet"
+
+# IPFS/Pinata Configuration (Server-side)
+Environment="PINATA_JWT=your_pinata_jwt_token"
+Environment="PINATA_GATEWAY=https://your-gateway.mypinata.cloud"
+
+# Contract Addresses (Public - set based on your deployment)
+# Arbitrum Sepolia Testnet
+Environment="NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_ARBITRUM_SEPOLIA=0x..."
+Environment="NEXT_PUBLIC_KEEPER_CONTRACT_ARBITRUM_SEPOLIA=0x..."
+
+# Arbitrum One Mainnet (if deployed)
+Environment="NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_ARBITRUM=0x..."
+Environment="NEXT_PUBLIC_KEEPER_CONTRACT_ARBITRUM=0x..."
+
+# Add other network contracts as needed:
+# Environment="NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_MAINNET=0x..."
+# Environment="NEXT_PUBLIC_KEEPER_CONTRACT_MAINNET=0x..."
+# Environment="NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_SEPOLIA=0x..."
+# Environment="NEXT_PUBLIC_KEEPER_CONTRACT_SEPOLIA=0x..."
+
 ExecStart=/usr/bin/npm start
 Restart=on-failure
 RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
+```
+
+**Important Notes:**
+
+- `NEXT_PUBLIC_PROJECT_ID`: Get from [WalletConnect Cloud](https://cloud.walletconnect.com) (required for wallet connections)
+- `PINATA_GATEWAY`: Optional but recommended for faster IPFS retrieval
+- Contract addresses: Copy from your deployment files in `/deployments/` directory
+- Only include contract addresses for networks you've deployed to
+
+#### **Deploy and Start Services:**
+
+```bash
+# Reload systemd to recognize the new service
+sudo systemctl daemon-reload
+
+# Enable service to start on boot
+sudo systemctl enable highest-voice
+
+# Start the service
+sudo systemctl start highest-voice
+
+# Check service status
+sudo systemctl status highest-voice
+
+# View logs if needed
+sudo journalctl -u highest-voice -f
+
+# Enable nginx site
+sudo ln -s /etc/nginx/sites-available/highest-voice /etc/nginx/sites-enabled/
+sudo nginx -t  # Test configuration
+sudo systemctl restart nginx
+
+# Check that everything is running
+curl http://localhost:3001  # Should get Next.js response
+curl http://localhost  # Should get proxied response from nginx
 ```
 
 ---
@@ -358,8 +685,35 @@ Nginx will be automatically updated with SSL configuration.
 Create `.env.production` in your `ui` directory:
 
 ```bash
-# Pinata (for IPFS uploads)
-PINATA_JWT=your_pinata_jwt_token
+# ========================================
+# Frontend Client Configuration (Public)
+# ========================================
+
+# WalletConnect Project ID (REQUIRED)
+# Get FREE from https://cloud.walletconnect.com
+NEXT_PUBLIC_PROJECT_ID=your_walletconnect_project_id
+
+# ========================================
+# Contract Addresses (Public)
+# ========================================
+
+# Arbitrum Sepolia Testnet
+NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_ARBITRUM_SEPOLIA=0x...
+NEXT_PUBLIC_KEEPER_CONTRACT_ARBITRUM_SEPOLIA=0x...
+
+# Arbitrum One Mainnet (if deployed)
+NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_ARBITRUM=0x...
+NEXT_PUBLIC_KEEPER_CONTRACT_ARBITRUM=0x...
+
+# Other networks (add as needed)
+# NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_MAINNET=0x...
+# NEXT_PUBLIC_KEEPER_CONTRACT_MAINNET=0x...
+# NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_SEPOLIA=0x...
+# NEXT_PUBLIC_KEEPER_CONTRACT_SEPOLIA=0x...
+
+# ========================================
+# Server-side RPC Provider (Private)
+# ========================================
 
 # Infura Sepolia (testnet)
 INFURA_ID_SEPOLIA=your_infura_project_id
@@ -369,12 +723,37 @@ INFURA_SECRET_SEPOLIA=your_infura_project_secret
 INFURA_ID_MAINNET=your_mainnet_infura_id
 INFURA_SECRET_MAINNET=your_mainnet_infura_secret
 
-# Next.js
+# ========================================
+# IPFS Configuration (Server-side)
+# ========================================
+
+# Pinata JWT Token (REQUIRED for uploads)
+PINATA_JWT=your_pinata_jwt_token
+
+# Pinata Dedicated Gateway (optional but recommended)
+# Format: https://your-gateway.mypinata.cloud
+PINATA_GATEWAY=https://your-gateway.mypinata.cloud
+
+# ========================================
+# Next.js Server Configuration
+# ========================================
+
 NODE_ENV=production
 PORT=3000
 ```
 
-⚠️ **Never commit `.env.production` to git!**
+⚠️ **Security:**
+
+- **Never commit `.env.production` to git!**
+- `NEXT_PUBLIC_*` variables are exposed to the browser (safe for public data only)
+- `INFURA_*` and `PINATA_*` are server-side only (never exposed to client)
+
+📝 **Getting Credentials:**
+
+- **WalletConnect**: [cloud.walletconnect.com](https://cloud.walletconnect.com) (free)
+- **Infura**: [infura.io](https://infura.io) (free tier available)
+- **Pinata**: [pinata.cloud](https://pinata.cloud) (free tier: 1GB storage)
+- **Contract Addresses**: From your `/deployments/<network>/` directory after deployment
 
 ---
 

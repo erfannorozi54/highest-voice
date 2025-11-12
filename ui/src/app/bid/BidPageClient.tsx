@@ -161,8 +161,8 @@ export function BidPageClient() {
           </Card>
         </motion.div>
 
-        {/* My Bid Status */}
-        {address && (
+        {/* My Bid Status - Show only when NOT actively revealing */}
+        {address && mode !== 'reveal' && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

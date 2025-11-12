@@ -175,6 +175,7 @@ export function WinnerPost({
               {/* Image - Optimized Backend API */}
               {post.imageCid && post.imageCid.trim() && (
                 <div className="rounded-xl overflow-hidden bg-dark-800 border border-white/10 relative min-h-[160px] flex items-center justify-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={`/api/ipfs/${post.imageCid}`}
                     alt="Winner post image"

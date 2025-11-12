@@ -6,7 +6,45 @@ import { HIGHEST_VOICE_ABI } from '@/contracts/HighestVoiceABI'
 
 // Environment-specific Infura credentials
 const INFURA_ID_SEPOLIA = process.env.INFURA_ID_SEPOLIA
+const INFURA_SECRET_SEPOLIA = process.env.INFURA_SECRET_SEPOLIA
 const INFURA_ID_MAINNET = process.env.INFURA_ID_MAINNET
+const INFURA_SECRET_MAINNET = process.env.INFURA_SECRET_MAINNET
+
+// Supported chain IDs (matches networks in wagmi config)
+// Exclude localhost in production builds
+const isProduction = process.env.NODE_ENV === 'production';
+const SUPPORTED_CHAIN_IDS = isProduction
+  ? [
+      11155111, // Sepolia
+      421614,   // Arbitrum Sepolia
+      1,        // Ethereum
+      42161,    // Arbitrum One
+      137,      // Polygon
+      10,       // Optimism
+      8453,     // Base
+    ]
+  : [
+      31337,    // Localhost
+      11155111, // Sepolia
+      421614,   // Arbitrum Sepolia
+      1,        // Ethereum
+      42161,    // Arbitrum One
+      137,      // Polygon
+      10,       // Optimism
+      8453,     // Base
+    ];
+
+// Network metadata for API documentation
+const NETWORK_NAMES: Record<number, string> = {
+  31337: 'Localhost',
+  11155111: 'Sepolia',
+  421614: 'Arbitrum Sepolia',
+  1: 'Ethereum',
+  42161: 'Arbitrum One',
+  137: 'Polygon',
+  10: 'Optimism',
+  8453: 'Base',
+}
 
 interface InfuraQuotaResponse {
   success: boolean
@@ -92,18 +130,55 @@ async function verifyDeployerSignature(
 }
 
 /**
- * Get RPC URL for on-chain verification
+ * Get RPC URL for on-chain verification (matches /api/rpc logic)
  */
 function getRpcUrl(chainId: number): string | null {
+  // Localhost
   if (chainId === 31337) {
     return 'http://127.0.0.1:8545'
   }
+  
+  // Ethereum Sepolia
   if (chainId === 11155111) {
     return INFURA_ID_SEPOLIA ? `https://sepolia.infura.io/v3/${INFURA_ID_SEPOLIA}` : null
   }
+  
+  // Arbitrum Sepolia
+  if (chainId === 421614) {
+    return INFURA_ID_SEPOLIA ? `https://arbitrum-sepolia.infura.io/v3/${INFURA_ID_SEPOLIA}` : null
+  }
+  
+  // Ethereum Mainnet
   if (chainId === 1) {
     return INFURA_ID_MAINNET ? `https://mainnet.infura.io/v3/${INFURA_ID_MAINNET}` : null
   }
+  
+  // Arbitrum One
+  if (chainId === 42161) {
+    return INFURA_ID_MAINNET 
+      ? `https://arbitrum-mainnet.infura.io/v3/${INFURA_ID_MAINNET}`
+      : 'https://arb1.arbitrum.io/rpc'
+  }
+  
+  // Polygon
+  if (chainId === 137) {
+    return INFURA_ID_MAINNET
+      ? `https://polygon-mainnet.infura.io/v3/${INFURA_ID_MAINNET}`
+      : 'https://polygon-rpc.com'
+  }
+  
+  // Optimism
+  if (chainId === 10) {
+    return INFURA_ID_MAINNET
+      ? `https://optimism-mainnet.infura.io/v3/${INFURA_ID_MAINNET}`
+      : 'https://mainnet.optimism.io'
+  }
+  
+  // Base
+  if (chainId === 8453) {
+    return 'https://mainnet.base.org'
+  }
+  
   return null
 }
 
@@ -112,10 +187,10 @@ function getRpcUrl(chainId: number): string | null {
  */
 async function getInfuraQuota(chainId: number): Promise<InfuraQuotaResponse> {
   try {
-    const infuraId = chainId === 11155111 ? INFURA_ID_SEPOLIA : INFURA_ID_MAINNET
-    const infuraSecret = chainId === 11155111
-      ? process.env.INFURA_SECRET_SEPOLIA
-      : process.env.INFURA_SECRET_MAINNET
+    // Determine which Infura credentials to use based on network
+    const useSepoliaCredentials = [11155111, 421614].includes(chainId)
+    const infuraId = useSepoliaCredentials ? INFURA_ID_SEPOLIA : INFURA_ID_MAINNET
+    const infuraSecret = useSepoliaCredentials ? INFURA_SECRET_SEPOLIA : INFURA_SECRET_MAINNET
 
     if (!infuraId || !infuraSecret) {
       return { success: false, error: 'Infura credentials not configured' }
@@ -183,10 +258,10 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Validate chainId
-    if (![1, 11155111, 31337].includes(chainId)) {
+    // Validate chainId against wagmi supported networks
+    if (!SUPPORTED_CHAIN_IDS.includes(chainId)) {
       return NextResponse.json(
-        { error: 'Invalid chainId. Must be 1 (mainnet), 11155111 (sepolia), or 31337 (localhost)' },
+        { error: `Invalid chainId. Must be one of: ${SUPPORTED_CHAIN_IDS.join(', ')}` },
         { status: 400 }
       )
     }
@@ -312,11 +387,15 @@ export async function GET() {
       authorizedRole: 'contract deployer',
     },
     requestFormat: {
-      chainId: 'number (1, 11155111, or 31337)',
+      chainId: `number (${SUPPORTED_CHAIN_IDS.join(', ')})`,
       address: 'string (deployer address)',
       signature: 'string (signed message)',
       message: 'string ("RPC Monitor Access Request - Timestamp: {timestamp}")',
     },
+    supportedNetworks: SUPPORTED_CHAIN_IDS.map(chainId => ({
+      name: NETWORK_NAMES[chainId],
+      chainId: chainId,
+    })),
     exampleMessage: `RPC Monitor Access Request - Timestamp: ${Date.now()}`,
   })
 }

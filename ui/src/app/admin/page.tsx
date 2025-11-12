@@ -168,6 +168,7 @@ export default function AdminMonitoringPage() {
     if (isConnected && isDeployer === true && address && mounted) {
       fetchMetrics();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected, isDeployer, address, chainId, mounted]);
 
   // Auto-refresh every 30 seconds
@@ -179,6 +180,7 @@ export default function AdminMonitoringPage() {
     }, 30000);
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDeployer]);
 
   // Show loading during SSR/hydration
