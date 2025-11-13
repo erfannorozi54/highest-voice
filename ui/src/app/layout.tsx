@@ -3,6 +3,7 @@ import './globals.css';
 import { Providers } from './providers';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { UnsupportedNetworkBanner } from '@/components/UnsupportedNetworkBanner';
+import MissionCTA from '@/components/MissionCTA';
 
 // Force dynamic rendering for the entire app (Web3 app with wallet integration)
 export const dynamic = 'force-dynamic';
@@ -72,6 +73,7 @@ export default function RootLayout({
               </div>
               
               {children}
+              <MissionCTA />
             </div>
           </ErrorBoundary>
         </Providers>
