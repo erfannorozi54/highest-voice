@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useChainId } from 'wagmi';
 import { usePathname } from 'next/navigation';
-import { Menu, X, Zap, Trophy, Users, Wallet, Settings } from 'lucide-react';
+import { Menu, X, Zap, Trophy, Users, Wallet } from 'lucide-react';
 import Image from 'next/image';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
@@ -73,7 +73,6 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
                   priority
                 />
               </div>
-              <div className="absolute -top-1 -right-1 w-4 h-4 bg-gold-500 rounded-full animate-pulse" />
             </div>
             <div>
               <h1 className="text-xl font-bold gradient-text font-display">

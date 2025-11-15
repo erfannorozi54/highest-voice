@@ -4,26 +4,25 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { Zap, Trophy, Users, TrendingUp, Settings, Crown, ArrowRight, Timer, Check } from 'lucide-react';
+import { Zap, Trophy, ArrowRight, Timer, Gift } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { MobileHeader } from '@/components/MobileHeader';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
-import { AuctionStatus } from '@/components/AuctionStatus';
 import { WinnersFeed } from '@/components/WinnersFeed';
 import { BidModal } from '@/components/BidModal';
 import { LegendaryHolder } from '@/components/LegendaryHolder';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { LogoLoader } from '@/components/LogoLoader';
 import { StepIndicator } from '@/components/ui/StepIndicator';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { CountdownTimer } from '@/components/CountdownTimer';
-import { useCurrentAuction, useUserStats, useUserFunds, useLeaderboard, useHighestVoiceEvents, useLegendaryToken, useHighestVoiceWrite, useUserCommitStatus } from '@/hooks/useHighestVoice';
-import { useWinnerPostPreloader } from '@/hooks/useIPFSPreloader';
-import { formatETH, truncateAddress, formatDuration } from '@/lib/utils';
-import { cn } from '@/lib/utils';
+import { useCurrentAuction, useUserStats, useUserFunds, useLeaderboard, useHighestVoiceEvents, useLegendaryToken, useHighestVoiceWrite, useUserCommitStatus, useUserBidDetails } from '@/hooks/useHighestVoice';
+import { truncateAddress } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { Modal } from '@/components/ui/Modal';
+import { Input } from '@/components/ui/Input';
 
 export default function HomePage() {
   const router = useRouter();
@@ -31,24 +30,28 @@ export default function HomePage() {
   const { address, isConnected } = useAccount();
   const { auctionInfo, isLoading: auctionLoading } = useCurrentAuction();
   const { stats } = useUserStats(address);
-  const { availableNow, lockedActive } = useUserFunds(address);
   const { leaderboard } = useLeaderboard();
   const { legendaryData, hasLegendary } = useLegendaryToken();
   const { hasCommitted, refetch: refetchCommitStatus } = useUserCommitStatus(auctionInfo?.id, address);
+  const { revealed, refetch: refetchBidDetails } = useUserBidDetails(auctionInfo?.id, address);
 
   const [bidModalOpen, setBidModalOpen] = useState(false);
-  const [bidModalMode, setBidModalMode] = useState<'commit' | 'reveal'>('commit');
+  const [bidModalMode] = useState<'commit' | 'reveal'>('commit');
   const [existingCommit, setExistingCommit] = useState<any>(null);
   const [activeTab, setActiveTab] = useState('home');
   const [currentTime, setCurrentTime] = useState(Math.floor(Date.now() / 1000));
   const hasRefreshed = useRef(false);
+  const { tipWinner: sendTipWinner, isPending: isTipPending } = useHighestVoiceWrite();
+  const [tipModalOpen, setTipModalOpen] = useState(false);
+  const [tipAuctionId, setTipAuctionId] = useState<bigint | null>(null);
+  const [tipAmount, setTipAmount] = useState('');
 
   // Track completed steps for "How it works" section
   const getCompletedSteps = () => {
     const steps = {
       connectWallet: isConnected,
       commitBid: hasCommitted, // Use on-chain commit status
-      reveal: false, // TODO: Add on-chain reveal check
+      reveal: !!revealed,
       win: !!(stats && Number(stats.totalWins) > 0),
     };
     return steps;
@@ -76,6 +79,17 @@ export default function HomePage() {
       }, 500);
     }
   }, [searchParams, refetchCommitStatus, router]);
+
+  useEffect(() => {
+    const refresh = searchParams.get('refresh');
+    if (refresh === 'reveal' && !hasRefreshed.current) {
+      hasRefreshed.current = true;
+      setTimeout(() => {
+        refetchBidDetails?.();
+        router.replace('/', { scroll: false });
+      }, 500);
+    }
+  }, [searchParams, refetchBidDetails, router]);
 
   // Update countdown timer every second
   useEffect(() => {
@@ -173,9 +187,40 @@ export default function HomePage() {
     router.push('/bid?mode=track');
   };
 
-  const handleTipWinner = () => {
-    console.log('Tip winner clicked');
-    alert('Tip winner clicked');
+  const handleTipWinner = (auctionId?: bigint) => {
+    if (!auctionId) {
+      toast.error('Missing auction ID');
+      return;
+    }
+    setTipAuctionId(auctionId);
+    setTipAmount('');
+    setTipModalOpen(true);
+  };
+
+  const submitTip = async () => {
+    if (!isConnected) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+    if (!tipAuctionId) {
+      toast.error('Missing auction ID');
+      return;
+    }
+    const amt = parseFloat(tipAmount);
+    if (isNaN(amt) || amt <= 0) {
+      toast.error('Please enter a valid tip amount');
+      return;
+    }
+    try {
+      const pending = toast.loading('Please confirm the transaction in your wallet...');
+      await sendTipWinner(tipAuctionId, tipAmount);
+      toast.dismiss(pending);
+      toast.success('Tip sent successfully!');
+      setTipModalOpen(false);
+      setTipAmount('');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to send tip');
+    }
   };
 
   // Mock winner data for when there are no real winners yet
@@ -237,6 +282,11 @@ export default function HomePage() {
 
     if (!hasCommitted) {
       toast.error('You have no commit to reveal for this auction');
+      return;
+    }
+
+    if (revealed) {
+      toast.success('You have already revealed your bid');
       return;
     }
 
@@ -680,6 +730,38 @@ export default function HomePage() {
             existingCommit={existingCommit}
           />
         )}
+
+        {/* Tip Winner Modal */}
+        <Modal
+          isOpen={tipModalOpen}
+          onClose={() => (!isTipPending ? setTipModalOpen(false) : undefined)}
+          title="Tip Winner"
+          description="Send ETH to support the winner (90% to winner, 10% to treasury)"
+          size="sm"
+        >
+          <div className="space-y-3">
+            <div className="p-2 rounded bg-primary-500/10 border border-primary-500/20 text-xs text-primary-300">
+              Tips are optional and help reward great posts. Thank you!
+            </div>
+            <Input
+              label="Tip Amount (ETH)"
+              type="number"
+              step="0.001"
+              placeholder="0.01"
+              value={tipAmount}
+              onChange={(e) => setTipAmount(e.target.value)}
+              variant="cyber"
+            />
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button variant="ghost" onClick={() => setTipModalOpen(false)} disabled={isTipPending}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={submitTip} loading={isTipPending} icon={<Gift className="w-4 h-4" />}> 
+                Send Tip
+              </Button>
+            </div>
+          </div>
+        </Modal>
       </main>
 
       {/* Mobile Bottom Navigation */}

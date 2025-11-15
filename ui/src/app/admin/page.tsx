@@ -23,7 +23,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { LogoLoader } from '@/components/LogoLoader';
 import { HIGHEST_VOICE_ABI } from '@/contracts/HighestVoiceABI';
-import { getContractAddress } from '@/lib/contracts';
+import { getContractAddress, isNetworkSupported, getSupportedNetworks } from '@/lib/contracts';
 
 interface RPCMetrics {
   total: number;
@@ -62,17 +62,25 @@ export default function AdminMonitoringPage() {
   const { signMessageAsync } = useSignMessage();
   const { data: walletClient } = useWalletClient();
 
-
   const [mounted, setMounted] = useState(false);
   const [metrics, setMetrics] = useState<MonitoringData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDeployer, setIsDeployer] = useState<boolean | null>(null);
+  const [authSignature, setAuthSignature] = useState<string | null>(null);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [authTimestamp, setAuthTimestamp] = useState<number | null>(null);
   const fetchingRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    setAuthSignature(null);
+    setAuthMessage(null);
+    setAuthTimestamp(null);
+  }, [address, chainId]);
 
   // Check if user is deployer
   const { data: deployerAddress, isLoading: deployerLoading } = useReadContract({
@@ -108,33 +116,51 @@ export default function AdminMonitoringPage() {
     setError(null);
 
     try {
-      const timestamp = Date.now();
-      const message = `RPC Monitor Access Request - Timestamp: ${timestamp}`;
-      
-      let signature;
-      try {
-        // Use walletClient.signMessage directly for better compatibility
-        if (walletClient) {
-          const signaturePromise = walletClient.signMessage({ message });
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Signature request timed out after 60 seconds')), 60000)
-          );
-          
-          signature = await Promise.race([signaturePromise, timeoutPromise]) as string;
-        } else {
-          // Fallback to useSignMessage hook
-          const signaturePromise = signMessageAsync({ message });
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Signature request timed out after 60 seconds')), 60000)
-          );
-          
-          signature = await Promise.race([signaturePromise, timeoutPromise]) as string;
+      const now = Date.now();
+      const AUTH_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+      let message = authMessage;
+      let signature = authSignature;
+      let timestamp = authTimestamp;
+
+      const hasValidSession =
+        !!authSignature &&
+        !!authMessage &&
+        typeof authTimestamp === 'number' &&
+        now - authTimestamp! < AUTH_TTL_MS;
+
+      if (!hasValidSession) {
+        timestamp = now;
+        message = `RPC Monitor Access Request - Timestamp: ${timestamp}`;
+        
+        try {
+          // Use walletClient.signMessage directly for better compatibility
+          if (walletClient) {
+            const signaturePromise = walletClient.signMessage({ message });
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Signature request timed out after 60 seconds')), 60000)
+            );
+            
+            signature = await Promise.race([signaturePromise, timeoutPromise]) as string;
+          } else {
+            // Fallback to useSignMessage hook
+            const signaturePromise = signMessageAsync({ message });
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Signature request timed out after 60 seconds')), 60000)
+            );
+            
+            signature = await Promise.race([signaturePromise, timeoutPromise]) as string;
+          }
+        } catch (signError: any) {
+          if (signError.message?.includes('timeout')) {
+            throw new Error('Wallet signature request timed out. Please check if your wallet is unlocked and try again.');
+          }
+          throw new Error(`Failed to sign message: ${signError.message || 'User rejected signature'}`);
         }
-      } catch (signError: any) {
-        if (signError.message?.includes('timeout')) {
-          throw new Error('Wallet signature request timed out. Please check if your wallet is unlocked and try again.');
-        }
-        throw new Error(`Failed to sign message: ${signError.message || 'User rejected signature'}`);
+
+        setAuthMessage(message!);
+        setAuthSignature(signature!);
+        setAuthTimestamp(timestamp!);
       }
 
       const response = await fetch('/api/rpc-monitor', {
@@ -211,8 +237,11 @@ export default function AdminMonitoringPage() {
   }
 
   // Check if on correct network
-  const supportedChains = [1, 11155111, 31337]; // mainnet, sepolia, localhost
-  if (!supportedChains.includes(chainId)) {
+  const isSupportedNetwork = isNetworkSupported(chainId);
+  const supportedNetworks = getSupportedNetworks();
+  const supportedNames = supportedNetworks.map((n) => n.name).join(', ');
+
+  if (!isSupportedNetwork) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
         <Header />
@@ -221,7 +250,8 @@ export default function AdminMonitoringPage() {
             <AlertTriangle className="w-16 h-16 text-orange-500 mx-auto mb-4" />
             <h2 className="text-2xl font-bold text-white mb-2">Unsupported Network</h2>
             <p className="text-gray-400 mb-4">
-              Please switch to Localhost (31337), Sepolia, or Mainnet.
+              Admin dashboard is only available on networks where HighestVoice is deployed.
+              Supported networks: {supportedNames || 'none (no contracts configured)'}.
             </p>
             <p className="text-sm font-mono text-gray-500">
               Current Chain ID: {chainId}

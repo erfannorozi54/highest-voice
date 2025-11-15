@@ -20,6 +20,7 @@ const allowedMethods = new Set<string>([
   'eth_blockNumber',
   'eth_gasPrice',
   'eth_maxPriorityFeePerGas',
+  'eth_feeHistory',
   'eth_getBalance',
   'eth_getCode',
   'eth_getTransactionByHash',
@@ -27,8 +28,16 @@ const allowedMethods = new Set<string>([
   'eth_getBlockByNumber',
   'eth_getBlockByHash',
   'eth_getLogs',
+  'eth_newFilter',
+  'eth_getFilterChanges',
+  'eth_getFilterLogs',
+  'eth_uninstallFilter',
   'eth_call',
   'eth_estimateGas',
+  'eth_getTransactionCount',
+  // Writes
+  'eth_sendRawTransaction',
+  'eth_sendTransaction',
 ])
 
 const CACHE_TTL: Record<string, number> = {
@@ -86,28 +95,38 @@ function getUpstreamUrl(chainId: string | null): { url: string; credentials: { i
   
   // Ethereum Sepolia
   if (chainId === '11155111') {
-    if (!INFURA_ID_SEPOLIA) return null
-    return {
-      url: `https://sepolia.infura.io/v3/${INFURA_ID_SEPOLIA}`,
-      credentials: { id: INFURA_ID_SEPOLIA, secret: INFURA_SECRET_SEPOLIA }
+    if (INFURA_ID_SEPOLIA) {
+      return {
+        url: `https://sepolia.infura.io/v3/${INFURA_ID_SEPOLIA}`,
+        credentials: { id: INFURA_ID_SEPOLIA, secret: INFURA_SECRET_SEPOLIA }
+      }
     }
+    // Public fallback
+    return { url: 'https://rpc.sepolia.org', credentials: {} }
   }
   
   // Arbitrum Sepolia (public RPC)
   if (chainId === '421614') {
-    return { 
-      url: `https://arbitrum-sepolia.infura.io/v3/${INFURA_ID_SEPOLIA}`,
-      credentials: { id: INFURA_ID_SEPOLIA, secret: INFURA_SECRET_SEPOLIA } 
+    if (INFURA_ID_SEPOLIA) {
+      return { 
+        url: `https://arbitrum-sepolia.infura.io/v3/${INFURA_ID_SEPOLIA}`,
+        credentials: { id: INFURA_ID_SEPOLIA, secret: INFURA_SECRET_SEPOLIA } 
+      }
     }
+    // Public fallback
+    return { url: 'https://sepolia-rollup.arbitrum.io/rpc', credentials: {} }
   }
   
   // Ethereum Mainnet
   if (chainId === '1') {
-    if (!INFURA_ID_MAINNET) return null
-    return {
-      url: `https://mainnet.infura.io/v3/${INFURA_ID_MAINNET}`,
-      credentials: { id: INFURA_ID_MAINNET, secret: INFURA_SECRET_MAINNET }
+    if (INFURA_ID_MAINNET) {
+      return {
+        url: `https://mainnet.infura.io/v3/${INFURA_ID_MAINNET}`,
+        credentials: { id: INFURA_ID_MAINNET, secret: INFURA_SECRET_MAINNET }
+      }
     }
+    // Public fallback (aggregator)
+    return { url: 'https://eth.llamarpc.com', credentials: {} }
   }
   
   // Arbitrum One (via Infura or public)

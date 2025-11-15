@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Info, BookOpenCheck } from "lucide-react";
-import { Inter, Vazirmatn } from "next/font/google";
-
-const inter = Inter({ subsets: ["latin"], display: "swap" });
-const vazirmatn = Vazirmatn({ subsets: ["arabic"], display: "swap" });
+// Removed next/font/google to avoid build-time fetch from Google Fonts in restricted environments
 
 export function MissionCTA() {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [lang, setLang] = useState<"en" | "fa">("en");
 
@@ -41,19 +41,32 @@ export function MissionCTA() {
   return (
     <>
       <div
-        className={`fixed inset-x-0 md:inset-x-auto md:right-6 bottom-6 md:bottom-6 z-[60] flex justify-center md:justify-end pb-2 safe-area-pb ${open ? 'opacity-0 pointer-events-none' : 'pointer-events-none'}`}
+        className={`fixed z-[60] pb-2 safe-area-pb flex justify-end
+        right-4 bottom-24 md:bottom-6 md:right-6
+        ${open ? 'opacity-0 pointer-events-none' : ''}`}
       >
         <div className="pointer-events-auto">
-          <Button
-            onClick={() => setOpen(true)}
-            variant="cyber"
-            size="lg"
-            glow
-            icon={<Info className="w-5 h-5" />}
-            aria-label="How it works"
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 8 }}
+            animate={{
+              opacity: 1,
+              scale: [1, 1.05, 1],
+              y: [0, -4, 0],
+            }}
+            transition={{ duration: 2, repeat: Infinity, repeatType: 'mirror' }}
           >
-            How it works · راهنما
-          </Button>
+            <Button
+              onClick={() => setOpen(true)}
+              variant="cyber"
+              size="lg"
+              glow
+              aria-label="How it works"
+              className="px-3 py-3 md:px-6 md:py-3 rounded-full md:rounded-lg shadow-[0_0_20px_rgba(129,140,248,0.6)] hover:shadow-[0_0_30px_rgba(129,140,248,0.9)]"
+            >
+              <Info className="w-5 h-5 md:mr-2" />
+              <span className="hidden md:inline">How it works!</span>
+            </Button>
+          </motion.div>
         </div>
       </div>
 
@@ -62,9 +75,16 @@ export function MissionCTA() {
         onClose={() => setOpen(false)}
         title={lang === 'en' ? 'How HighestVoice Works' : 'راهنمای HighestVoice'}
         size="lg"
-        className={lang === 'en' ? inter.className : vazirmatn.className}
       >
-        <div className="space-y-6">
+        <div
+          className="space-y-6"
+          style={{
+            fontFamily:
+              lang === 'fa'
+                ? 'var(--font-vazirmatn), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial'
+                : 'var(--font-inter), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
+          }}
+        >
           {/* Language toggle */}
           <div className="flex items-center justify-between">
             <div className="text-sm text-gray-400">
@@ -107,7 +127,7 @@ export function MissionCTA() {
               <section className="space-y-2">
                 <h3 className="font-semibold">What Did We Do?</h3>
                 <p className="text-gray-300">
-                  <span className="font-semibold">HighestVoice</span> is a decentralized platform on the blockchain built just for you. Here, you can show your creativity in a daily auction and share your message with everyone. Your post (text, image, or audio) is recorded on the blockchain forever, and no one can censor or delete it. Since posting requires winning the auction, content is valuable, and there’s no spam. Winners get a cool “HighestVoice Winner” NFT.
+                  <span className="font-semibold">HighestVoice</span> is a decentralized platform on the blockchain where you can share your words, opinions, and any content you care about in a daily open auction without censorship. Your post (text, image, or audio) is recorded on the blockchain forever, and no one can censor or delete it. Because you must win the auction to publish a post, content becomes more valuable and there’s no spam. Winners receive a special “HighestVoice Winner” NFT.
                 </p>
               </section>
 
@@ -134,7 +154,7 @@ export function MissionCTA() {
                     <strong>Reveal Phase (Next 12h)</strong>: Use the same bid and your secret salt to reveal. Send any remaining ETH to match your bid. Only revealed bids count.
                   </li>
                   <li>
-                    <strong>Settlement</strong>: When reveal ends, the auction settles. The highest revealed bid wins and pays the second-highest price. Any extra ETH you sent is returned.
+                    <strong>Settlement</strong>: When reveal ends, the auction settles. The highest revealed bid wins and pays the second-highest price. All other bidders get their ETH back, and any extra ETH Winner sent above the price is returned.
                   </li>
                   <li>
                     <strong>Rewards</strong>: The winner receives the “HighestVoice Winner” NFT on-chain. A new round begins.
@@ -149,7 +169,7 @@ export function MissionCTA() {
                   <li>During the commit phase, enter your bid and message. Optionally attach an image or voice note. We’ll generate a secret salt—save it. Your browser stores it, but you can also download a backup.</li>
                   <li>Pay at least the minimum collateral to submit your commit. You can pay the rest during reveal.</li>
                   <li>When reveal starts, open reveal, paste your salt (or load your saved data), and send any remaining ETH. Submit the reveal transaction. Only revealed bids are valid.</li>
-                  <li>After reveal ends, check results. If you win, you pay the second-highest price and receive the winner NFT.</li>
+                  <li>After reveal ends, check results. If you win, you pay the second-highest price, your post is shown as the winner for 24 hours, and you receive the winner NFT.</li>
                 </ol>
               </section>
 
@@ -161,7 +181,6 @@ export function MissionCTA() {
                   <li><strong>Quality Content</strong>: Participation cost means valuable content, no spam.</li>
                   <li><strong>Fair</strong>: Same rules for everyone.</li>
                   <li><strong>Transparent</strong>: Everything’s on the blockchain.</li>
-                  <li><strong>Ownership</strong>: Winner’s NFT is yours alone.</li>
                 </ul>
               </section>
 
@@ -223,7 +242,18 @@ export function MissionCTA() {
             </div>
           )}
 
-          <div className="flex justify-end">
+          <div className="flex justify-between items-center gap-3 pt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setOpen(false);
+                router.push('/how-it-works');
+              }}
+            >
+              {lang === 'en' ? 'Read full explanation' : 'توضیحات بیشتر'}
+            </Button>
+
             <Button onClick={() => setOpen(false)} variant="primary" size="md" icon={<BookOpenCheck className="w-4 h-4" />}>
               {lang === 'en' ? 'Got it' : 'متوجه شدم'}
             </Button>

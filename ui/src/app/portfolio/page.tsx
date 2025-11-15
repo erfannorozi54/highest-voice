@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useAccount } from 'wagmi';
+import { useAccount, usePublicClient } from 'wagmi';
 import { useRouter } from 'next/navigation';
 import { 
   Wallet, 
@@ -28,24 +28,50 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { LogoLoader } from '@/components/LogoLoader';
-import { useUserStats, useUserFunds, useCurrentAuction, useUserCommitStatus } from '@/hooks/useHighestVoice';
-import { formatETH, truncateAddress } from '@/lib/utils';
-import { cn } from '@/lib/utils';
+import { useUserStats, useUserFunds, useCurrentAuction, useUserCommitStatus, useHighestVoiceWrite } from '@/hooks/useHighestVoice';
+import { formatETH } from '@/lib/utils';
+import toast from 'react-hot-toast';
 
 export default function PortfolioPage() {
   const router = useRouter();
   const { address, isConnected } = useAccount();
   const { stats, isLoading: statsLoading } = useUserStats(address);
-  const { availableNow, lockedActive, isLoading: fundsLoading } = useUserFunds(address);
+  const { availableNow, lockedActive, isLoading: fundsLoading, refetch: refetchFunds } = useUserFunds(address);
   const { auctionInfo } = useCurrentAuction();
   const { hasCommitted } = useUserCommitStatus(auctionInfo?.id, address);
   const [activeTab, setActiveTab] = useState('portfolio');
   const [mounted, setMounted] = useState(false);
+  const { withdrawEverything, isPending: isWithdrawing } = useHighestVoiceWrite();
+  const publicClient = usePublicClient();
 
   // Prevent hydration mismatch by waiting for client-side mount
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const handleWithdraw = async () => {
+    if (!isConnected) {
+      toast.error('Connect your wallet first');
+      return;
+    }
+    if (availableNow <= 0n) {
+      toast.error('No funds available to withdraw');
+      return;
+    }
+    try {
+      const toastId = toast.loading('Please confirm withdrawal in your wallet...');
+      const txHash = await withdrawEverything();
+      toast.loading('Waiting for blockchain confirmation...', { id: toastId });
+      if (publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash: txHash });
+      }
+      toast.dismiss(toastId);
+      toast.success('Withdrawal successful');
+      await refetchFunds?.();
+    } catch (e: any) {
+      toast.error(e?.message || 'Withdrawal failed');
+    }
+  };
 
   // Calculate win rate percentage
   const winRate = stats && stats.totalParticipations > 0n 
@@ -158,7 +184,13 @@ export default function PortfolioPage() {
                     </div>
                   </div>
                   {availableNow > 0n && (
-                    <Button variant="outline" size="sm" className="w-full border-green-500/50 text-green-400 hover:bg-green-500/10">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="w-full border-green-500/50 text-green-400 hover:bg-green-500/10"
+                      onClick={handleWithdraw}
+                      loading={isWithdrawing}
+                    >
                       Withdraw Funds
                     </Button>
                   )}

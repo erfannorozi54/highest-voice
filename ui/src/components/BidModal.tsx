@@ -7,11 +7,10 @@ import { Hash, Upload, AlertCircle, Info, Check, AlertTriangle, Download, FileUp
 import { Modal } from './ui/Modal';
 import { Input } from './ui/Input';
 import { Button } from './ui/Button';
-import { Badge } from './ui/Badge';
 import { Card } from './ui/Card';
 import { useHighestVoiceWrite, useUserBidDetails } from '@/hooks/useHighestVoice';
 import { generateSalt, generateCommitHash, validateETHAmount, validateText, validateCID, formatETH } from '@/lib/utils';
-import { BidCommitData, AuctionInfo } from '@/types';
+import { AuctionInfo } from '@/types';
 import { parseEther } from 'viem';
 import toast from 'react-hot-toast';
 
@@ -83,7 +82,7 @@ const BidModal: React.FC<BidModalProps> = ({
   const { address } = useAccount();
   const { commitBid, revealBid, isPending } = useHighestVoiceWrite();
   const { signMessageAsync } = useSignMessage();
-  const { commitHash: onChainCommitHash } = useUserBidDetails(auctionInfo.id);
+  const { commitHash: onChainCommitHash } = useUserBidDetails(auctionInfo.id, address);
 
   // Form state
   const [bidAmount, setBidAmount] = useState(existingCommit?.bidAmount || '');

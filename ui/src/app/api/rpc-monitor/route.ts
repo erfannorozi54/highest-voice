@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { metricsCollector } from '@/lib/metrics'
-import { verifyMessage } from 'viem'
+import { recoverMessageAddress } from 'viem'
 import { getContractAddress } from '@/lib/contracts'
-import { HIGHEST_VOICE_ABI } from '@/contracts/HighestVoiceABI'
 
 // Environment-specific Infura credentials
 const INFURA_ID_SEPOLIA = process.env.INFURA_ID_SEPOLIA
@@ -73,20 +72,20 @@ async function verifyDeployerSignature(
   message: string
 ): Promise<boolean> {
   try {
-    // Verify the signature matches the address
-    const isValid = await verifyMessage({
-      address: address as `0x${string}`,
+    // Recover the signer address from the signed message
+    const recoveredAddress = await recoverMessageAddress({
       message,
       signature: signature as `0x${string}`,
     })
 
-    if (!isValid) {
-      return false
-    }
-
     // Fetch the deployer address from the contract
     const contractAddress = getContractAddress(chainId, 'highestVoice')
+    if (!contractAddress) {
+      console.error('No HighestVoice contract configured for chainId:', chainId)
+      return false
+    }
     const rpcUrl = getRpcUrl(chainId)
+    const headers = getRpcHeaders(chainId)
     
     if (!rpcUrl) {
       console.error('No RPC URL for chainId:', chainId)
@@ -96,7 +95,7 @@ async function verifyDeployerSignature(
     // Call the contract to get DEPLOYER address
     const response = await fetch(rpcUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 1,
@@ -114,15 +113,16 @@ async function verifyDeployerSignature(
 
     const data = await response.json()
     if (data.error || !data.result) {
-      console.error('Contract call failed:', data.error)
+      console.error('Contract call failed:', data.error || data)
       return false
     }
 
     // Parse the returned address (remove padding)
-    const deployerAddress = '0x' + data.result.slice(-40)
+    const deployerAddress = ('0x' + data.result.slice(-40)).toLowerCase()
+    const signerAddress = recoveredAddress.toLowerCase()
 
     // Check if the signer is the deployer
-    return deployerAddress.toLowerCase() === address.toLowerCase()
+    return deployerAddress === signerAddress
   } catch (error) {
     console.error('Deployer verification failed:', error)
     return false
@@ -140,12 +140,20 @@ function getRpcUrl(chainId: number): string | null {
   
   // Ethereum Sepolia
   if (chainId === 11155111) {
-    return INFURA_ID_SEPOLIA ? `https://sepolia.infura.io/v3/${INFURA_ID_SEPOLIA}` : null
+    if (INFURA_ID_SEPOLIA) {
+      return `https://sepolia.infura.io/v3/${INFURA_ID_SEPOLIA}`
+    }
+    // Public fallback
+    return 'https://sepolia.drpc.org'
   }
   
   // Arbitrum Sepolia
   if (chainId === 421614) {
-    return INFURA_ID_SEPOLIA ? `https://arbitrum-sepolia.infura.io/v3/${INFURA_ID_SEPOLIA}` : null
+    if (INFURA_ID_SEPOLIA) {
+      return `https://arbitrum-sepolia.infura.io/v3/${INFURA_ID_SEPOLIA}`
+    }
+    // Public fallback
+    return 'https://sepolia-rollup.arbitrum.io/rpc'
   }
   
   // Ethereum Mainnet
@@ -180,6 +188,30 @@ function getRpcUrl(chainId: number): string | null {
   }
   
   return null
+}
+
+function getRpcHeaders(chainId: number): Record<string, string> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+
+  let id: string | undefined
+  let secret: string | undefined
+
+  // Sepolia & Arbitrum Sepolia use Sepolia Infura project
+  if (chainId === 11155111 || chainId === 421614) {
+    id = INFURA_ID_SEPOLIA ?? undefined
+    secret = INFURA_SECRET_SEPOLIA ?? undefined
+  } else if ([1, 42161, 137, 10].includes(chainId)) {
+    // Mainnet & L2s use Mainnet Infura project
+    id = INFURA_ID_MAINNET ?? undefined
+    secret = INFURA_SECRET_MAINNET ?? undefined
+  }
+
+  if (id && secret) {
+    const auth = Buffer.from(`${id}:${secret}`).toString('base64')
+    headers['authorization'] = `Basic ${auth}`
+  }
+
+  return headers
 }
 
 /**
@@ -278,8 +310,8 @@ export async function POST(req: NextRequest) {
 
     const messageTimestamp = parseInt(match[1])
     const now = Date.now()
-    const fiveMinutes = 5 * 60 * 1000
-    if (Math.abs(now - messageTimestamp) > fiveMinutes) {
+    const tenMinutes = 10 * 60 * 1000
+    if (Math.abs(now - messageTimestamp) > tenMinutes) {
       return NextResponse.json(
         { error: 'Message timestamp expired. Please generate a new signature.' },
         { status: 401 }

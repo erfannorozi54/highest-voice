@@ -5,12 +5,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount, useSignMessage, usePublicClient } from 'wagmi';
 import { useRouter } from 'next/navigation';
 import { 
-  Upload, AlertCircle, Info, Check, Download, FileUp, Eye, EyeOff, Copy
+  Upload, Info, Check, Download, FileUp, Eye, EyeOff, Copy
 } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { useHighestVoiceWrite } from '@/hooks/useHighestVoice';
+import { useHighestVoiceWrite, useUserBidDetails } from '@/hooks/useHighestVoice';
 import { generateSalt, generateCommitHash, validateETHAmount, validateText, validateCID, formatETH } from '@/lib/utils';
 import { AuctionInfo } from '@/types';
 import { parseEther } from 'viem';
@@ -40,6 +40,7 @@ export function BidForm({ mode, auctionInfo, onSuccess }: BidFormProps) {
   const publicClient = usePublicClient();
   const { commitBid, revealBid, isPending } = useHighestVoiceWrite();
   const { signMessageAsync } = useSignMessage();
+  const { revealed } = useUserBidDetails(auctionInfo?.id, address);
   
 
   const [existingCommit, setExistingCommit] = useState<any>(null);
@@ -346,7 +347,7 @@ export function BidForm({ mode, auctionInfo, onSuccess }: BidFormProps) {
           toast.dismiss(pendingToast);
           toast.success('Bid revealed successfully!');
           
-          setTimeout(() => router.push('/'), 2000);
+          setTimeout(() => router.push('/?refresh=reveal'), 2000);
         } catch (txError) {
           toast.dismiss(pendingToast);
           throw txError;
@@ -393,6 +394,12 @@ export function BidForm({ mode, auctionInfo, onSuccess }: BidFormProps) {
               : 'Unlock your bid and compete for the highest voice'}
           </p>
         </div>
+
+        {mode === 'reveal' && revealed && (
+          <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-300 text-sm">
+            ✓ Your bid is already revealed for this auction.
+          </div>
+        )}
 
         {mode === 'reveal' && !existingCommit && (
           <motion.div
@@ -777,12 +784,12 @@ export function BidForm({ mode, auctionInfo, onSuccess }: BidFormProps) {
           <Button
             onClick={handleInitiateSubmit}
             loading={isPending}
-            disabled={!bidAmount || !text || (mode === 'commit' && !collateral)}
+            disabled={!bidAmount || !text || (mode === 'commit' && !collateral) || (mode === 'reveal' && !!revealed)}
             variant="cyber"
             className={`w-full ${mode === 'commit' ? 'py-3 text-base' : 'py-4 text-lg'}`}
             glow
           >
-            {mode === 'commit' ? '🔒 Commit Bid to Blockchain' : '🔓 Reveal Bid & Compete'}
+            {mode === 'commit' ? '🔒 Commit Bid to Blockchain' : (revealed ? '✅ Already Revealed' : '🔓 Reveal Bid & Compete')}
           </Button>
         </div>
       </div>

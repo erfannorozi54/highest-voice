@@ -11,7 +11,6 @@ import {
   ExternalLink,
   ArrowLeft,
   Calendar,
-  DollarSign,
   Award,
   Sparkles,
   Share2,

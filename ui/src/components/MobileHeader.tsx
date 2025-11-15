@@ -1,6 +1,6 @@
 'use client';
 
-import { Bell, Search, Settings, Wallet } from 'lucide-react';
+import { Bell, Wallet } from 'lucide-react';
 import Image from 'next/image';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Button } from './ui/Button';

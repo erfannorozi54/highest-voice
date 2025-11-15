@@ -4,6 +4,7 @@ import { Providers } from './providers';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { UnsupportedNetworkBanner } from '@/components/UnsupportedNetworkBanner';
 import MissionCTA from '@/components/MissionCTA';
+import localFont from 'next/font/local';
 
 // Force dynamic rendering for the entire app (Web3 app with wallet integration)
 export const dynamic = 'force-dynamic';
@@ -43,18 +44,40 @@ export const viewport = {
   themeColor: '#0ea5e9',
 };
 
+// Self-hosted fonts (using variable TTFs in public/fonts). Case-sensitive paths.
+const inter = localFont({
+  src: [
+    { path: '../../public/fonts/Inter/Inter-VariableFont_opsz,wght.ttf', style: 'normal', weight: '100 900' },
+    { path: '../../public/fonts/Inter/Inter-Italic-VariableFont_opsz,wght.ttf', style: 'italic', weight: '100 900' },
+  ],
+  variable: '--font-inter',
+  display: 'swap',
+});
+
+const vazirmatn = localFont({
+  src: [
+    { path: '../../public/fonts/Vazirmatn/Vazirmatn-VariableFont_wght.ttf', style: 'normal', weight: '100 900' },
+  ],
+  variable: '--font-vazirmatn',
+  display: 'swap',
+});
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${inter.variable} ${vazirmatn.variable}`}>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body 
         className="min-h-screen bg-dark-950 text-white antialiased font-sans"
+        style={{
+          fontFamily:
+            'var(--font-inter), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
+        }}
         suppressHydrationWarning={true}
       >
         <Providers>

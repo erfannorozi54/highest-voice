@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { CheckCircle, Lock, Unlock, AlertCircle, Eye, EyeOff, Zap, Info, Upload, FileText } from 'lucide-react';
+import { CheckCircle, Lock, Unlock, AlertCircle, Eye, EyeOff, Zap, Info, Upload } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';

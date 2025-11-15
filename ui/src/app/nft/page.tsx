@@ -7,13 +7,9 @@ import { useRouter } from 'next/navigation';
 import { 
   Trophy, 
   Crown, 
-  Gift, 
   Image as ImageIcon,
-  ExternalLink,
   Award,
-  Zap,
   Heart,
-  Share2,
   Filter,
   Search,
   ChevronDown,
@@ -34,7 +30,6 @@ import { useChainId } from 'wagmi';
 import { HIGHEST_VOICE_ABI } from '@/contracts/HighestVoiceABI';
 
 export default function NFTPage() {
-  const router = useRouter();
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const contractAddress = getContractAddress(chainId, 'highestVoice');

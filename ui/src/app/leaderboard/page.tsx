@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { Trophy, Crown, Medal, TrendingUp, Flame, Zap, Users, Award, ChevronDown, ChevronUp } from 'lucide-react';

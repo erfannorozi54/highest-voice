@@ -3,10 +3,10 @@
 import { useCallback } from 'react';
 import { useReadContract, useWriteContract, useWatchContractEvent } from 'wagmi';
 import { useChainId } from 'wagmi';
-import { parseEther, formatEther } from 'viem';
+import { parseEther } from 'viem';
 import { HIGHEST_VOICE_ABI } from '@/contracts/HighestVoiceABI';
 import { getContractAddress } from '@/lib/contracts';
-import { AuctionInfo, UserStats, Post, SettlementProgress, LeaderboardEntry } from '@/types';
+import { AuctionInfo, Post, SettlementProgress, LeaderboardEntry } from '@/types';
 import { getAuctionPhase, getTimeRemaining } from '@/lib/utils';
 
 // Hook for current auction information
@@ -148,7 +148,7 @@ export function useUserFunds(address?: `0x${string}`) {
   const chainId = useChainId();
   const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
 
-  const { data: fundsSummary, isLoading } = useReadContract({
+  const { data: fundsSummary, isLoading, refetch } = useReadContract({
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'getMyFundsSummary',
@@ -163,6 +163,7 @@ export function useUserFunds(address?: `0x${string}`) {
     availableNow: fundsSummary?.[0] || BigInt(0),
     lockedActive: fundsSummary?.[1] || BigInt(0),
     isLoading,
+    refetch,
   };
 }
 
@@ -219,7 +220,7 @@ export function useUserCommitStatus(auctionId?: bigint, userAddress?: `0x${strin
 }
 
 // Hook to get user's bid details including commit hash
-export function useUserBidDetails(auctionId?: bigint) {
+export function useUserBidDetails(auctionId?: bigint, userAddress?: `0x${string}`) {
   const chainId = useChainId();
   const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
 
@@ -228,9 +229,10 @@ export function useUserBidDetails(auctionId?: bigint) {
     abi: HIGHEST_VOICE_ABI,
     functionName: 'getMyBid',
     args: auctionId ? [auctionId] : undefined,
+    account: userAddress,
     chainId,
     query: {
-      enabled: !!auctionId,
+      enabled: !!auctionId && !!userAddress,
     },
   });
 

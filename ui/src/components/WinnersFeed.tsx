@@ -2,10 +2,10 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Trophy, TrendingUp, Clock, Filter, Crown } from 'lucide-react';
+import { TrendingUp, Clock, Filter } from 'lucide-react';
 import Image from 'next/image';
 import { WinnerPost } from './WinnerPost';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
+import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { Post } from '@/types';

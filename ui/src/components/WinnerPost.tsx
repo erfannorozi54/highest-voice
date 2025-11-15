@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Share2, Gift, Crown, Volume2, Play, Pause, Mic } from 'lucide-react';
+import { Share2, Gift, Volume2, Play, Pause, Mic } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';

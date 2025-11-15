@@ -53,7 +53,7 @@ export function MobileBottomNav({
       <div className="absolute inset-0 bg-dark-900/80 backdrop-blur-xl border-t border-white/10" />
       
       {/* Navigation */}
-      <nav className="relative flex items-center justify-around px-2 py-2 safe-area-pb">
+      <nav className="relative mx-auto max-w-md flex items-center gap-1 px-2 py-2 safe-area-pb">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = active === tab.id;
@@ -70,11 +70,11 @@ export function MobileBottomNav({
                 }
               }}
               className={cn(
-                'relative flex flex-col items-center justify-center p-2 rounded-xl transition-all duration-200',
+                'relative flex-1 flex flex-col items-center justify-center py-1.5 rounded-2xl transition-all duration-200 min-h-[52px]',
                 isCreate
-                  ? 'bg-primary-600 hover:bg-primary-700 scale-110'
+                  ? 'bg-primary-600 hover:bg-primary-700 shadow-[0_0_18px_rgba(37,99,235,0.6)]'
                   : isActive
-                  ? 'bg-primary-500/20 border border-primary-500/30'
+                  ? 'bg-primary-500/15 border border-primary-500/40 shadow-[0_0_12px_rgba(59,130,246,0.4)]'
                   : 'hover:bg-white/5'
               )}
             >

@@ -7,14 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
 import { formatETH, formatDuration, formatRelativeTime } from '@/lib/utils';
-import { AuctionInfo, Post } from '@/types';
+import { AuctionInfo } from '@/types';
 import { cn } from '@/lib/utils';
 
 interface AuctionCardProps {
   auctionInfo: AuctionInfo;
   onCommitBid?: () => void;
   onRevealBid?: () => void;
-  onTipWinner?: () => void;
+  onTipWinner?: (auctionId: bigint) => void;
   className?: string;
 }
 
@@ -199,7 +199,7 @@ const AuctionCard: React.FC<AuctionCardProps> = ({
                   size="sm"
                   variant="outline"
                   className="w-full mt-2 border-gold-500/50 text-gold-400 hover:bg-gold-500/10"
-                  onClick={onTipWinner}
+                  onClick={() => onTipWinner?.(auctionInfo.id)}
                 >
                   Tip Winner
                 </Button>

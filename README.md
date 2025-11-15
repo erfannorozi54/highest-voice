@@ -126,8 +126,7 @@ npm run deploy:base              # Coinbase L2
 
 - 🌐 **Frontend**: <http://localhost:3000>
 - 🔗 **Local Node**: <http://127.0.0.1:8545>
-- 👛 **Test Account**: `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`
-- 🔑 **Private Key**: `0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
+- 👛 **Local Test Accounts**: use the accounts printed by `npx hardhat node` (for development only, never on mainnet)
 
 ```bash
 # Sepolia testnet
@@ -418,6 +417,130 @@ npm install --workspace=ui
 - [COST_OPTIMIZATION_GUIDE.md](docs/COST_OPTIMIZATION_GUIDE.md) - All strategies
 
 **TL;DR:** Deploy on Arbitrum instead of Ethereum mainnet = Save $600/month!
+
+## How HighestVoice Works (Technical Overview)
+
+This section describes how the protocol, automation, backend proxy, and UI work together in the current codebase.
+
+### Goals & Design Principles
+
+- **Freedom & No Censorship** – Posts are stored on-chain or via content-addressed CIDs; no admin can remove a winner.
+- **Truthful Bidding** – Second-price, sealed-bid commit–reveal auction encourages honest bids.
+- **Economic DoS Protection** – Bounded reveal set, batched settlement, and capped collateral adjustments.
+- **Simple Withdrawals** – Users can always reclaim funds through explicit withdraw functions and `withdrawEverything()`.
+- **Composable On-Chain Data** – Winner NFTs, stats, and leaderboards are readable by any external indexer or frontend.
+
+### Auction Lifecycle
+
+The core lifecycle is implemented in `contracts/HighestVoice.sol` and exposed to the UI via `ui/src/hooks/useHighestVoice.ts`.
+
+1. **Auction Scheduling**
+   - `currentAuctionId` tracks the active auction.
+   - When an auction is settled, `_startNewAuction()` schedules the next one so that each round lasts **24h**:
+     - `COMMIT_DURATION = 12 hours`
+     - `REVEAL_DURATION = 12 hours`
+   - `getCountdownEnd()` returns `revealEnd` and is used by the UI to drive timers.
+
+2. **Commit Phase (Sealed Bids)**
+   - Users locally build a **commit hash**:
+     - Frontend uses `generateCommitHash` over `(bidAmount, text, imageCid, voiceCid, salt)` and `parseEther(bidAmount)`.
+   - On-chain commit:
+     - `commitBid(bytes32 commitHash) payable` stores `BidCommit { commitHash, collateral, revealed, revealedBid }` in `Auction.commits[msg.sender]`.
+     - Requires `msg.value >= minimumCollateral` and that the user has not committed/canceled already.
+     - Emits `NewCommit`.
+   - UI implementation:
+     - `BidForm` in `commit` mode:
+       - Uploads optional media to IPFS via `/api/ipfs-upload` (Pinata + signed message flow).
+       - Validates text/amounts and minimum collateral.
+       - Calls `useHighestVoiceWrite().commitBid(commitHash, collateral)` and waits for the receipt via `publicClient.waitForTransactionReceipt`.
+       - On confirm, saves **reveal data** (`bidAmount`, `text`, CIDs, `salt`, `collateral`) to `localStorage` and offers a `.json` backup download.
+
+3. **Reveal Phase (Open Bidding)**
+   - On-chain reveal:
+     - `revealBid(uint256 bidAmount, string text, string imageCid, string voiceCid, bytes32 salt) payable` verifies:
+       - Commit exists and is not yet revealed.
+       - `keccak256(bidAmount, text, imageCid, voiceCid, salt)` matches stored `commitHash`.
+       - Text / CID length limits and `totalProvided >= bidAmount`.
+     - Maintains `Auction.revealedBidders` with a hard cap `MAX_REVEALS_PER_AUCTION` and **evicts the lowest bid** if capacity is full.
+     - Tracks `auction.winningBid`, `auction.secondBid`, and `auction.winnerPost` incrementally.
+     - Emits `NewReveal`.
+   - UI implementation:
+     - `BidForm` in `reveal` mode:
+       - Loads commit data from `localStorage` or from a user-uploaded backup file.
+       - Shows the remaining amount to pay and computes `additionalCollateral` from stored commit vs full bid.
+       - Calls `useHighestVoiceWrite().revealBid(...)` with optional `additionalCollateral` as `msg.value`.
+       - Waits for confirmation and then redirects to `/?refresh=reveal` so the homepage refetches `getMyBid` and marks the **Reveal** step complete.
+     - `useUserBidDetails(auctionId, userAddress)` wraps `getMyBid(auctionId)` and exposes `revealed` / `revealedBid` so:
+       - The homepage cannot send a user to reveal twice.
+       - The reveal UI shows “Already revealed” and disables the button if `revealed == true`.
+
+4. **Settlement**
+   - `HighestVoiceKeeper` (Chainlink Automation) monitors `getCountdownEnd()` and `getSettlementProgress()` to decide when to call `settleAuction()`.
+   - `settleAuction()` is **batched** to avoid gas DoS and operates in three steps:
+     1. Determine winner (or handle no-winner case) and mint the winner NFT.
+     2. Process refunds for revealed bidders in batches of `SETTLEMENT_BATCH_SIZE`.
+     3. Finalize: mark auction as settled, accumulate surplus (`secondBid`), and adjust `minimumCollateral` within safe bounds.
+   - Invariants:
+     - Winner always pays exactly the **second-highest revealed bid**.
+     - All other revealed bidders receive full refunds of their total collateral.
+     - State for processed bidders is cleared to avoid stale data.
+   - If automation fails, `HighestVoiceKeeper.manualSettle()` can be called permissionlessly.
+
+5. **Fund Management & Withdrawals**
+   - **Refunds for revealed bidders** are recorded in `refunds[auctionId][bidder]` and withdrawn via `withdrawRefund(auctionId)` (pull-over-push).
+   - **Unrevealed commits** can claim their collateral back via `withdrawUnrevealedCollateral(auctionId)` after reveal end.
+   - **One-click withdraw**:
+     - `withdrawEverything()` scans the last `RECENT_AUCTIONS` (7) and aggregates:
+       - All recorded refunds from settled/canceled auctions.
+       - All unrevealed collateral where `now >= revealEnd`.
+     - Reverts with `NoFundsAvailable` if nothing is withdrawable.
+   - UI:
+     - `useUserFunds()` reads `getMyFundsSummary()` via `account` and exposes `availableNow` and `lockedActive`.
+     - The portfolio page calls `withdrawEverything()` and **waits for receipt** using `usePublicClient().waitForTransactionReceipt`, then refetches `useUserFunds()` so “Available to Withdraw” updates without a page reload.
+
+6. **Tipping & Legendary Token**
+   - `tipWinner(auctionId) payable`:
+     - Requires a settled auction with a non-zero winner.
+     - Splits tips: **90% to winner**, **10% to treasury** (`accumulatedSurplus`).
+     - Updates `auctionTips[auctionId]` and `userStats[winner].totalTipsReceived`.
+     - Maintains a global **highest-tipped auction** and manages the soulbound `legendaryTokenId`:
+       - First time: mints legendary NFT to the current highest-tipped winner.
+       - Later: transfers the legendary NFT internally to a new champion and updates metadata.
+   - UI:
+     - The Winners feed and winner cards call `useHighestVoiceWrite().tipWinner(auctionId, tipAmount)`.
+     - A modal collects the tip amount in ETH, converts to `BigInt` with `parseEther` under the hood, and displays success/failure via `react-hot-toast`.
+
+### RPC Proxy & Frontend Networking
+
+All RPC traffic from the Next.js app goes through `/api/rpc`, which acts as a **rate-limited, cached JSON-RPC proxy**.
+
+- Accepts `POST /api/rpc?chainId=<id>` with a JSON-RPC body.
+- Enforces a strict `allowedMethods` list (e.g., `eth_call`, `eth_estimateGas`, `eth_sendRawTransaction`, etc.).
+- Applies per-IP rate limiting (`RATE_LIMIT_MAX` per `RATE_LIMIT_WINDOW_MS`).
+- Caches responses for read-only methods like `eth_blockNumber`, `eth_getBalance`, and `eth_call` with different TTLs.
+- Resolves upstream endpoints based on `chainId`:
+  - Infura for Sepolia/mainnet when IDs/secrets are configured.
+  - Public RPC fallbacks (e.g., `https://rpc.sepolia.org`, `https://eth.llamarpc.com`, Arbitrum/Polygon/Optimism/Base public endpoints).
+- Records lightweight metrics via `metricsCollector` for monitoring latency, cache hits, and error types.
+
+`wagmi` / `viem` are configured in `ui/src/lib/wagmi.ts` to use this proxy as the transport for all supported chains (local Hardhat, Sepolia, mainnet, Arbitrum, etc.).
+
+### Frontend Architecture
+
+- **Framework**: Next.js 14 App Router (`ui/`), TypeScript, TailwindCSS.
+- **Wallet & Chains**: `wagmi` + `viem` + `@rainbow-me/rainbowkit` with a shared config.
+- **Contract Access**:
+  - `useCurrentAuction`, `useUserStats`, `useUserFunds`, `useUserCommitStatus`, `useUserBidDetails`, `useLegendaryToken`, etc., wrap read calls.
+  - `useHighestVoiceWrite` wraps write calls (`commitBid`, `revealBid`, `withdrawEverything`, `tipWinner`, `settleAuction`, `distributeSurplus`, ...).
+- **Bid Flow UI**: `BidPageClient` + `BidForm` handle commit/reveal modes with:
+  - Local commit data caching in `localStorage` (`commit_<auctionId>_<address>`).
+  - Optional IPFS uploads (image/audio) through signed `/api/ipfs-upload`.
+  - Toast-based UX for wallet confirmation and transaction mining.
+- **Home / Portfolio**:
+  - Homepage shows auction phase, timers, winner feed, and a progressive “How it works” stepper based on on-chain state.
+  - Portfolio shows user stats and funds, and wires the **Withdraw** button to `withdrawEverything()` with live refetch.
+
+This combination keeps the core auction logic fully on-chain, while the UI and RPC proxy focus on UX, performance, and safety.
 
 ## Support
 
