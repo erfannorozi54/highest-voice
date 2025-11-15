@@ -9,6 +9,32 @@ import { getContractAddress } from '@/lib/contracts';
 import { AuctionInfo, Post, SettlementProgress, LeaderboardEntry } from '@/types';
 import { getAuctionPhase, getTimeRemaining } from '@/lib/utils';
 
+// Hook to check if an auction is settled
+// CRITICAL: Due to paged settlement, lastWinnerPost is updated BEFORE auction.settled = true
+// This creates a window where a winner appears in the feed but tipping fails with high gas fees
+// Always check settlement status before allowing tips to prevent the 39,406 ETH gas issue
+export function useAuctionSettled(auctionId?: bigint) {
+  const chainId = useChainId();
+  const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
+
+  const { data } = useReadContract({
+    address: contractAddress,
+    abi: HIGHEST_VOICE_ABI,
+    functionName: 'getAuctionResult',
+    args: auctionId !== undefined ? [auctionId] : undefined,
+    query: {
+      enabled: !!contractAddress && auctionId !== undefined,
+    },
+  });
+
+  return {
+    settled: data ? (data as any)[0] as boolean : false,
+    winner: data ? (data as any)[1] as `0x${string}` : undefined,
+    winningBid: data ? (data as any)[2] as bigint : undefined,
+    secondBid: data ? (data as any)[3] as bigint : undefined,
+  };
+}
+
 // Hook for current auction information
 export function useCurrentAuction() {
   const chainId = useChainId();
@@ -471,5 +497,79 @@ export function useWinnerNFT(tokenId?: bigint) {
   return {
     nft,
     isLoading,
+  };
+}
+
+// Hook for fetching winners data (current and previous)
+export function useWinners() {
+  const chainId = useChainId();
+  const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
+
+  // Get last winner post data
+  const { data: lastWinnerPostData } = useReadContract({
+    address: contractAddress || undefined,
+    abi: HIGHEST_VOICE_ABI,
+    functionName: 'lastWinnerPost',
+    chainId,
+    query: {
+      enabled: !!contractAddress,
+    },
+  });
+
+  // Get last winner time
+  const { data: lastWinnerTime } = useReadContract({
+    address: contractAddress || undefined,
+    abi: HIGHEST_VOICE_ABI,
+    functionName: 'lastWinnerTime',
+    chainId,
+    query: {
+      enabled: !!contractAddress,
+    },
+  });
+
+  // Get the auction ID of the last winner directly
+  const { data: lastWinnerAuctionId }: { data: bigint | undefined } = useReadContract({
+    address: contractAddress || undefined,
+    abi: HIGHEST_VOICE_ABI,
+    functionName: 'lastWinnerAuctionId',
+    chainId,
+    query: {
+      enabled: !!contractAddress,
+    },
+  });
+
+  // If we have winner data, then there's a current winner
+  const hasWinners = !!(lastWinnerPostData && lastWinnerTime && lastWinnerAuctionId && Number(lastWinnerAuctionId) > 0);
+
+  let currentWinner = undefined;
+  const previousWinners: Array<{
+    post: Post;
+    auctionId: bigint;
+    timestamp: bigint;
+  }> = [];
+
+  if (hasWinners && lastWinnerPostData && lastWinnerTime && lastWinnerAuctionId) {
+    const winnerAddress = lastWinnerPostData[0] as `0x${string}`;
+    
+    currentWinner = {
+      post: {
+        owner: winnerAddress,
+        text: lastWinnerPostData[1] as string,
+        imageCid: lastWinnerPostData[2] as string,
+        voiceCid: lastWinnerPostData[3] as string,
+        tipsReceived: lastWinnerPostData[4] as bigint,
+      },
+      auctionId: lastWinnerAuctionId,
+      timestamp: lastWinnerTime,
+    };
+
+    // For now, we'll keep previous winners empty - can be expanded later to fetch more historical winners
+    // This would require fetching winnerNFTs for earlier tokenIds
+  }
+
+  return {
+    currentWinner,
+    previousWinners,
+    hasWinners: !!hasWinners,
   };
 }

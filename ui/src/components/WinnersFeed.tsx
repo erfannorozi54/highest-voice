@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { TrendingUp, Clock, Filter } from 'lucide-react';
 import Image from 'next/image';
@@ -33,23 +33,31 @@ export function WinnersFeed({
 }: WinnersFeedProps) {
   const [filter, setFilter] = useState<'all' | 'recent' | 'top'>('all');
   const [showAll, setShowAll] = useState(false);
+  const [currentTime, setCurrentTime] = useState(() => Math.floor(Date.now() / 1000));
 
-  // Debug logging
-  console.log('WinnersFeed - currentWinner:', currentWinner);
-  console.log('WinnersFeed - previousWinners:', previousWinners);
+  // Update current time every minute to avoid excessive re-renders
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(Math.floor(Date.now() / 1000));
+    }, 60000); // Update every minute
+    return () => clearInterval(interval);
+  }, []);
 
-  const filteredWinners = previousWinners
-    .filter((winner) => {
-      switch (filter) {
-        case 'recent':
-          return Date.now() / 1000 - Number(winner.timestamp) < 7 * 24 * 60 * 60; // Last 7 days
-        case 'top':
-          return winner.post.tipsReceived > BigInt(0);
-        default:
-          return true;
-      }
-    })
-    .slice(0, showAll ? undefined : 5);
+  // Memoize filtered winners - now depends on currentTime which updates less frequently
+  const filteredWinners = useMemo(() => {
+    return previousWinners
+      .filter((winner) => {
+        switch (filter) {
+          case 'recent':
+            return currentTime - Number(winner.timestamp) < 7 * 24 * 60 * 60; // Last 7 days
+          case 'top':
+            return winner.post.tipsReceived > BigInt(0);
+          default:
+            return true;
+        }
+      })
+      .slice(0, showAll ? undefined : 5);
+  }, [previousWinners, filter, showAll, currentTime]);
 
   return (
     <div className="space-y-6">
@@ -128,7 +136,7 @@ export function WinnersFeed({
               {/* Auction Info Badge */}
               <div className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-dark-800/50 border border-primary-500/20 backdrop-blur-sm group hover:border-primary-500/40 transition-colors duration-300">
                 <span className="text-sm font-semibold text-gray-300 group-hover:text-gray-200 transition-colors">
-                  Auction #{currentWinner.auctionId.toString()}
+                  Auction {currentWinner.auctionId.toString()}
                 </span>
               </div>
             </div>

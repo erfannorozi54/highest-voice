@@ -132,6 +132,7 @@ contract HighestVoice is ERC721 {
     mapping(uint256 => Auction) private auctions;
     Post public lastWinnerPost;
     uint256 public lastWinnerTime;
+    uint256 public lastWinnerAuctionId; // Which auction the last winner came from
     uint256 public lastSettledAuctionId; // For accurate projection window
     
     // Pull-over-push refund pattern
@@ -394,6 +395,7 @@ contract HighestVoice is ERC721 {
             auction.winnerDetermined = true;
             lastWinnerPost = auction.winnerPost;
             lastWinnerTime = block.timestamp;
+            lastWinnerAuctionId = currentAuctionId; // Track which auction this winner came from
             
             // Mint NFT for winner (stats updated in refund processing)
             _mintWinnerNFT(auction.winner, currentAuctionId, auction.winningBid, auction.winnerPost.text);
@@ -830,10 +832,10 @@ contract HighestVoice is ERC721 {
         Auction storage auction = auctions[auctionId];
         return (auction.startTime, auction.commitEnd, auction.revealEnd);
     }
-    function getWinnerPost() external view returns (address owner, string memory text, string memory imageCid, string memory voiceCid, uint256 projectedUntil) {
+    function getWinnerPost() external view returns (address owner, string memory text, string memory imageCid, string memory voiceCid, uint256 projectedUntil, uint256 auctionId) {
         // Use reveal end time of settled auction for accurate projection window
         uint256 projectionEnd = lastSettledAuctionId > 0 ? auctions[lastSettledAuctionId].revealEnd + 24 hours : lastWinnerTime + 24 hours;
-        return (lastWinnerPost.owner, lastWinnerPost.text, lastWinnerPost.imageCid, lastWinnerPost.voiceCid, projectionEnd);
+        return (lastWinnerPost.owner, lastWinnerPost.text, lastWinnerPost.imageCid, lastWinnerPost.voiceCid, projectionEnd, lastWinnerAuctionId);
     }
     function getAuctionResult(uint256 auctionId) external view returns (bool settled, address winner, uint256 winningBid, uint256 secondBid) {
         Auction storage a = auctions[auctionId];

@@ -9,6 +9,7 @@ import { Button } from './ui/Button';
 import { formatETH, formatDuration, formatRelativeTime } from '@/lib/utils';
 import { AuctionInfo } from '@/types';
 import { cn } from '@/lib/utils';
+import { NoSSR } from './NoSSR';
 
 interface AuctionCardProps {
   auctionInfo: AuctionInfo;
@@ -99,10 +100,14 @@ const AuctionCard: React.FC<AuctionCardProps> = ({
               <Trophy className="w-6 h-6 text-white" />
             </div>
             <div>
-              <span className="gradient-text font-bold text-xl">Auction #{auctionInfo.id.toString()}</span>
-              <p className="text-sm text-gray-400 font-semibold mt-1">
-                Decentralized Voice Competition
-              </p>
+              <NoSSR fallback={<h2 className="text-2xl font-bold">Loading...</h2>}>
+                <h2 className="text-2xl font-bold">
+                  {auctionInfo ? `Auction #${auctionInfo.id?.toString() || '--'}` : 'Loading...'}
+                </h2>
+              </NoSSR>
+              <Badge variant={phaseInfo.color} className="mt-1">
+                {phaseInfo.label}
+              </Badge>
             </div>
           </CardTitle>
           

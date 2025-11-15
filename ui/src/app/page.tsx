@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Zap, Trophy, ArrowRight, Timer, Gift } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { MobileHeader } from '@/components/MobileHeader';
@@ -18,7 +19,8 @@ import { LogoLoader } from '@/components/LogoLoader';
 import { StepIndicator } from '@/components/ui/StepIndicator';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { CountdownTimer } from '@/components/CountdownTimer';
-import { useCurrentAuction, useUserStats, useUserFunds, useLeaderboard, useHighestVoiceEvents, useLegendaryToken, useHighestVoiceWrite, useUserCommitStatus, useUserBidDetails } from '@/hooks/useHighestVoice';
+import { NoSSR } from '@/components/NoSSR';
+import { useCurrentAuction, useUserStats, useUserFunds, useLeaderboard, useHighestVoiceEvents, useLegendaryToken, useHighestVoiceWrite, useUserCommitStatus, useUserBidDetails, useWinners, useAuctionSettled } from '@/hooks/useHighestVoice';
 import { truncateAddress } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import { Modal } from '@/components/ui/Modal';
@@ -34,6 +36,7 @@ export default function HomePage() {
   const { legendaryData, hasLegendary } = useLegendaryToken();
   const { hasCommitted, refetch: refetchCommitStatus } = useUserCommitStatus(auctionInfo?.id, address);
   const { revealed, refetch: refetchBidDetails } = useUserBidDetails(auctionInfo?.id, address);
+  const { currentWinner, previousWinners, hasWinners } = useWinners();
 
   const [bidModalOpen, setBidModalOpen] = useState(false);
   const [bidModalMode] = useState<'commit' | 'reveal'>('commit');
@@ -45,6 +48,10 @@ export default function HomePage() {
   const [tipModalOpen, setTipModalOpen] = useState(false);
   const [tipAuctionId, setTipAuctionId] = useState<bigint | null>(null);
   const [tipAmount, setTipAmount] = useState('');
+  const [noCommitModalOpen, setNoCommitModalOpen] = useState(false);
+  
+  // Check settlement status to prevent high gas fees during paged settlement
+  const { settled: auctionSettled } = useAuctionSettled(tipAuctionId || undefined);
 
   // Track completed steps for "How it works" section
   const getCompletedSteps = () => {
@@ -192,6 +199,7 @@ export default function HomePage() {
       toast.error('Missing auction ID');
       return;
     }
+    
     setTipAuctionId(auctionId);
     setTipAmount('');
     setTipModalOpen(true);
@@ -206,11 +214,19 @@ export default function HomePage() {
       toast.error('Missing auction ID');
       return;
     }
+    
+    // CRITICAL: Check settlement to prevent 39,406 ETH gas fee during paged settlement
+    if (!auctionSettled) {
+      toast.error('Settlement in progress. Please wait a moment and try again.');
+      return;
+    }
+    
     const amt = parseFloat(tipAmount);
     if (isNaN(amt) || amt <= 0) {
       toast.error('Please enter a valid tip amount');
       return;
     }
+    
     try {
       const pending = toast.loading('Please confirm the transaction in your wallet...');
       await sendTipWinner(tipAuctionId, tipAmount);
@@ -219,7 +235,8 @@ export default function HomePage() {
       setTipModalOpen(false);
       setTipAmount('');
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to send tip');
+      const errorMsg = e?.message || 'Failed to send tip';
+      toast.error(errorMsg);
     }
   };
 
@@ -248,18 +265,12 @@ export default function HomePage() {
       timestamp: BigInt(Math.floor(Date.now() / 1000) - 7200), // 2 hours ago
     },
   ];
-
-  // For debugging - let's always show mock data for now
-  console.log('Debug - auctionInfo:', auctionInfo);
-  console.log('Debug - leaderboard:', leaderboard);
-  console.log('Debug - mockWinners:', mockWinners);
   
-  // Force show mock data since we're in first auction with no winners
-  const hasRealWinners = false; // Force to false for now to always show mocks
-  
-  // Always provide mock data as fallback
-  const currentWinnerData = mockWinners[0];
-  const previousWinnersData = mockWinners.slice(1);
+  // Use real winner data if available, otherwise fallback to mock data
+  // If ANY real winner exists, show ONLY real winners (no mock)
+  // If NO real winners exist, show mock data
+  const currentWinnerData = (hasWinners && currentWinner) ? currentWinner : (hasWinners ? undefined : mockWinners[0]);
+  const previousWinnersData = hasWinners ? previousWinners : mockWinners.slice(1);
 
   // Preload IPFS content for better performance (disabled for now)
   // useWinnerPostPreloader(mockWinners);
@@ -349,12 +360,21 @@ export default function HomePage() {
             )}
 
             {/* Mobile Winners Feed - First Priority */}
-            <WinnersFeed
-              currentWinner={currentWinnerData}
-              previousWinners={previousWinnersData}
-              onTipWinner={handleTipWinner}
-              onSharePost={(auctionId) => console.log('Share post:', auctionId)}
-            />
+            <NoSSR fallback={
+              <WinnersFeed
+                currentWinner={mockWinners[0]}
+                previousWinners={mockWinners.slice(1)}
+                onTipWinner={handleTipWinner}
+                onSharePost={(auctionId) => console.log('Share post:', auctionId)}
+              />
+            }>
+              <WinnersFeed
+                currentWinner={currentWinnerData}
+                previousWinners={previousWinnersData}
+                onTipWinner={handleTipWinner}
+                onSharePost={(auctionId) => console.log('Share post:', auctionId)}
+              />
+            </NoSSR>
 
             {/* Mobile Current Auction Status */}
             {auctionInfo && (
@@ -370,9 +390,11 @@ export default function HomePage() {
                 >
                   <div className="flex items-center justify-center space-x-2">
                     <Trophy className="w-3.5 h-3.5 text-gold-400 animate-pulse" />
-                    <h3 className="text-lg font-black tracking-wide bg-gradient-to-r from-gold-300 via-gold-400 to-gold-500 bg-clip-text text-transparent">
-                      AUCTION #{auctionInfo.id.toString()}
-                    </h3>
+                    <NoSSR fallback={<h3 className="text-lg font-black tracking-wide bg-gradient-to-r from-gold-300 via-gold-400 to-gold-500 bg-clip-text text-transparent">AUCTION 1</h3>}>
+                      <h3 className="text-lg font-black tracking-wide bg-gradient-to-r from-gold-300 via-gold-400 to-gold-500 bg-clip-text text-transparent">
+                        AUCTION {auctionInfo.id.toString()}
+                      </h3>
+                    </NoSSR>
                     <Trophy className="w-3.5 h-3.5 text-gold-400 animate-pulse" />
                   </div>
                 </motion.div>
@@ -426,24 +448,60 @@ export default function HomePage() {
                   />
                 </div>
 
-                <Button 
-                  onClick={
-                    !auctionInfo ? undefined :
-                    auctionInfo.phase === 'commit' 
-                      ? (hasCommitted ? handleViewBid : handleCommitBid)
-                      : handleRevealBid
-                  }
-                  disabled={!isConnected || !auctionInfo}
-                  className="w-full bg-gradient-to-r from-primary-600 to-secondary-600 hover:from-primary-700 hover:to-secondary-700 text-white shadow-lg touch-manipulation"
-                  size="lg"
-                  glow
-                >
-                  <Zap className="w-5 h-5 mr-2" />
-                  {auctionInfo.phase === 'commit' 
-                    ? (hasCommitted ? 'View My Bid' : 'Submit Voice')
-                    : 'Reveal Bid'
-                  }
-                </Button>
+                <ConnectButton.Custom>
+                  {({ openConnectModal }) => {
+                    if (!isConnected) {
+                      return (
+                        <Button 
+                          onClick={openConnectModal}
+                          className="w-full bg-gradient-to-r from-primary-600 to-secondary-600 hover:from-primary-700 hover:to-secondary-700 text-white shadow-lg touch-manipulation"
+                          size="lg"
+                          glow
+                        >
+                          <Zap className="w-5 h-5 mr-2" />
+                          Connect Wallet
+                        </Button>
+                      );
+                    }
+                    
+                    // Determine button text and state
+                    let buttonText = '';
+                    let buttonDisabled = false;
+                    let buttonGlow = true;
+                    let buttonOnClick = () => {};
+                    
+                    if (auctionInfo.phase === 'commit') {
+                      buttonText = hasCommitted ? 'View My Bid' : 'Submit Voice';
+                      buttonOnClick = hasCommitted ? handleViewBid : handleCommitBid;
+                    } else if (auctionInfo.phase === 'reveal') {
+                      buttonText = 'Reveal Bid';
+                      if (hasCommitted) {
+                        buttonOnClick = handleRevealBid;
+                      } else {
+                        // Don't disable - let user click to see why it's inactive
+                        buttonGlow = false;
+                        buttonOnClick = () => setNoCommitModalOpen(true);
+                      }
+                    } else {
+                      buttonText = 'Waiting...';
+                      buttonDisabled = true;
+                      buttonGlow = false;
+                    }
+                    
+                    return (
+                      <Button 
+                        onClick={buttonOnClick}
+                        disabled={buttonDisabled || !auctionInfo}
+                        className="w-full bg-gradient-to-r from-primary-600 to-secondary-600 hover:from-primary-700 hover:to-secondary-700 text-white shadow-lg touch-manipulation"
+                        size="lg"
+                        glow={buttonGlow}
+                      >
+                        <Zap className="w-5 h-5 mr-2" />
+                        {buttonText}
+                      </Button>
+                    );
+                  }}
+                </ConnectButton.Custom>
               </Card>
             )}
           </div>
@@ -520,26 +578,63 @@ export default function HomePage() {
                     </div>
 
                     {/* Action Button - Compact */}
-                    {auctionInfo && !completedSteps.win && (
-                      <Button 
-                        onClick={
-                          auctionInfo.phase === 'commit'
-                            ? (hasCommitted ? handleViewBid : handleCommitBid)
-                            : handleRevealBid
-                        }
-                        variant="cyber"
-                        size="sm"
-                        disabled={!completedSteps.connectWallet || !auctionInfo}
-                        glow
-                        className="w-full"
-                      >
-                        <Zap className="w-3 h-3 mr-2" />
-                        {!completedSteps.connectWallet && 'Connect Wallet'}
-                        {completedSteps.connectWallet && !completedSteps.commitBid && auctionInfo.phase === 'commit' && 'Commit Bid'}
-                        {completedSteps.commitBid && auctionInfo.phase === 'commit' && 'View My Bid'}
-                        {completedSteps.commitBid && !completedSteps.reveal && auctionInfo.phase === 'reveal' && 'Reveal Bid'}
-                        {completedSteps.connectWallet && auctionInfo.phase !== 'commit' && auctionInfo.phase !== 'reveal' && 'Waiting...'}
-                      </Button>
+                    {auctionInfo && (
+                      <ConnectButton.Custom>
+                        {({ openConnectModal }) => {
+                          if (!completedSteps.connectWallet) {
+                            return (
+                              <Button 
+                                onClick={openConnectModal}
+                                variant="cyber"
+                                size="sm"
+                                glow
+                                className="w-full"
+                              >
+                                <Zap className="w-3 h-3 mr-2" />
+                                Connect Wallet
+                              </Button>
+                            );
+                          }
+                          
+                          // Determine button text and state
+                          let buttonText = '';
+                          let buttonDisabled = false;
+                          let buttonGlow = true;
+                          let buttonOnClick = () => {};
+                          
+                          if (auctionInfo.phase === 'commit') {
+                            buttonText = hasCommitted ? 'View My Bid' : 'Commit Bid';
+                            buttonOnClick = hasCommitted ? handleViewBid : handleCommitBid;
+                          } else if (auctionInfo.phase === 'reveal') {
+                            buttonText = 'Reveal Bid';
+                            if (hasCommitted) {
+                              buttonOnClick = handleRevealBid;
+                            } else {
+                              // Don't disable - let user click to see why it's inactive
+                              buttonGlow = false;
+                              buttonOnClick = () => setNoCommitModalOpen(true);
+                            }
+                          } else {
+                            buttonText = 'Waiting...';
+                            buttonDisabled = true;
+                            buttonGlow = false;
+                          }
+                          
+                          return (
+                            <Button 
+                              onClick={buttonOnClick}
+                              variant="cyber"
+                              size="sm"
+                              disabled={buttonDisabled}
+                              glow={buttonGlow}
+                              className="w-full"
+                            >
+                              <Zap className="w-3 h-3 mr-2" />
+                              {buttonText}
+                            </Button>
+                          );
+                        }}
+                      </ConnectButton.Custom>
                     )}
                   </div>
                 </Card>
@@ -595,12 +690,21 @@ export default function HomePage() {
               )}
 
               {/* Winners Feed - Top Priority */}
-              <WinnersFeed
-                currentWinner={currentWinnerData}
-                previousWinners={previousWinnersData}
-                onTipWinner={handleTipWinner}
-                onSharePost={(auctionId) => console.log('Share post:', auctionId)}
-              />
+              <NoSSR fallback={
+                <WinnersFeed
+                  currentWinner={mockWinners[0]}
+                  previousWinners={mockWinners.slice(1)}
+                  onTipWinner={handleTipWinner}
+                  onSharePost={(auctionId) => console.log('Share post:', auctionId)}
+                />
+              }>
+                <WinnersFeed
+                  currentWinner={currentWinnerData}
+                  previousWinners={previousWinnersData}
+                  onTipWinner={handleTipWinner}
+                  onSharePost={(auctionId) => console.log('Share post:', auctionId)}
+                />
+              </NoSSR>
             </div>
 
             {/* Right Sidebar - Quick Access */}
@@ -618,9 +722,11 @@ export default function HomePage() {
                       animate={{ scale: 1 }}
                       className="text-center p-3 rounded-xl bg-gradient-to-r from-primary-500/20 to-secondary-500/20 border border-primary-500/30"
                     >
-                      <h3 className="text-xl font-black tracking-wider bg-gradient-to-r from-gold-300 to-gold-500 bg-clip-text text-transparent">
-                        AUCTION #{auctionInfo.id.toString()}
-                      </h3>
+                      <NoSSR fallback={<h3 className="text-xl font-black tracking-wider bg-gradient-to-r from-gold-300 to-gold-500 bg-clip-text text-transparent">AUCTION 1</h3>}>
+                        <h3 className="text-xl font-black tracking-wider bg-gradient-to-r from-gold-300 to-gold-500 bg-clip-text text-transparent">
+                          AUCTION {auctionInfo.id.toString()}
+                        </h3>
+                      </NoSSR>
                     </motion.div>
                     
                     {/* Phase Indicators */}
@@ -735,13 +841,18 @@ export default function HomePage() {
         <Modal
           isOpen={tipModalOpen}
           onClose={() => (!isTipPending ? setTipModalOpen(false) : undefined)}
-          title="Tip Winner"
+          title={`Tip Winner - Auction #${tipAuctionId?.toString() || '?'}`}
           description="Send ETH to support the winner (90% to winner, 10% to treasury)"
           size="sm"
         >
           <div className="space-y-3">
+            {!auctionSettled && (
+              <div className="p-2 rounded bg-yellow-500/10 border border-yellow-500/30 text-xs text-yellow-300">
+                ⏳ Settlement in progress... The winner is shown but settlement is being processed in batches. Please wait a moment before tipping.
+              </div>
+            )}
             <div className="p-2 rounded bg-primary-500/10 border border-primary-500/20 text-xs text-primary-300">
-              Tips are optional and help reward great posts. Thank you!
+              💡 Tips are optional and help reward great posts. 90% goes to the winner, 10% to treasury.
             </div>
             <Input
               label="Tip Amount (ETH)"
@@ -751,13 +862,42 @@ export default function HomePage() {
               value={tipAmount}
               onChange={(e) => setTipAmount(e.target.value)}
               variant="cyber"
+              disabled={!auctionSettled}
             />
             <div className="flex items-center justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={() => setTipModalOpen(false)} disabled={isTipPending}>
                 Cancel
               </Button>
-              <Button variant="primary" onClick={submitTip} loading={isTipPending} icon={<Gift className="w-4 h-4" />}> 
+              <Button 
+                variant="primary" 
+                onClick={submitTip} 
+                loading={isTipPending}
+                disabled={!auctionSettled}
+                icon={<Gift className="w-4 h-4" />}
+              > 
                 Send Tip
+              </Button>
+            </div>
+          </div>
+        </Modal>
+
+        {/* No Commit Modal */}
+        <Modal
+          isOpen={noCommitModalOpen}
+          onClose={() => setNoCommitModalOpen(false)}
+          title="No Bid to Reveal"
+          size="sm"
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-gray-300">
+              You need to commit a bid during the <span className="text-primary-400 font-semibold">Commit Phase</span> before you can reveal it.
+            </p>
+            <p className="text-sm text-gray-400">
+              Wait for the next auction to participate!
+            </p>
+            <div className="flex justify-end pt-2">
+              <Button variant="primary" onClick={() => setNoCommitModalOpen(false)}>
+                Got it
               </Button>
             </div>
           </div>

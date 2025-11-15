@@ -42,14 +42,8 @@ export function WinnerPost({
     };
   }, [audioElement]);
 
-  // Debug logging
-  console.log('WinnerPost - post:', post);
-  console.log('WinnerPost - auctionId:', auctionId);
-  console.log('WinnerPost - timestamp:', timestamp);
-
   // Safety check for incomplete post data
   if (!post || !post.owner) {
-    console.log('WinnerPost - Returning null due to missing post or owner');
     return null;
   }
 

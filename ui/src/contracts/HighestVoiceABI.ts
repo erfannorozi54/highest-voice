@@ -1405,6 +1405,11 @@ export const HIGHEST_VOICE_ABI = [
         "internalType": "uint256",
         "name": "projectedUntil",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "auctionId",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -1506,6 +1511,19 @@ export const HIGHEST_VOICE_ABI = [
   {
     "inputs": [],
     "name": "lastSettledAuctionId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "lastWinnerAuctionId",
     "outputs": [
       {
         "internalType": "uint256",
