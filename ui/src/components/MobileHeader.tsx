@@ -34,6 +34,7 @@ export function MobileHeader({
             width={28}
             height={28}
             className="object-contain"
+            style={{ height: "auto" }}
           />
           <h1 className="text-lg font-semibold text-white truncate">
             {title}

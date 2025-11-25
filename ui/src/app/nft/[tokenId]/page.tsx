@@ -44,6 +44,7 @@ export default function NFTDetailPage() {
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState('nft');
   const [tipAmount, setTipAmount] = useState('');
+  const [svgImage, setSvgImage] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -80,6 +81,31 @@ export default function NFTDetailPage() {
     functionName: 'tokenURI',
     args: [BigInt(tokenId)],
   });
+
+  // Parse SVG from tokenURI
+  useEffect(() => {
+    if (tokenURI && typeof tokenURI === 'string') {
+      try {
+        // TokenURI is a data URI: data:application/json;base64,{base64data}
+        const base64Data = tokenURI.split(',')[1];
+        const jsonData = JSON.parse(atob(base64Data));
+        
+        if (jsonData.image) {
+          // Image is also a data URI: data:image/svg+xml;base64,{svgBase64}
+          if (jsonData.image.startsWith('data:image/svg+xml;base64,')) {
+            const svgBase64 = jsonData.image.split(',')[1];
+            const svgString = atob(svgBase64);
+            setSvgImage(svgString);
+          } else {
+            // If it's already plain SVG
+            setSvgImage(jsonData.image);
+          }
+        }
+      } catch (error) {
+        console.error('Error parsing tokenURI:', error);
+      }
+    }
+  }, [tokenURI]);
 
   const handleTip = async () => {
     if (!tipAmount || parseFloat(tipAmount) <= 0) {
@@ -162,7 +188,7 @@ export default function NFTDetailPage() {
             >
               {/* NFT Image */}
               <div className={cn(
-                "w-full aspect-square flex items-center justify-center relative",
+                "w-full aspect-square relative",
                 isLegendary 
                   ? "bg-gradient-to-br from-yellow-500/20 via-orange-500/20 to-red-500/20"
                   : "bg-gradient-to-br from-primary-500/20 to-secondary-500/20"
@@ -175,10 +201,22 @@ export default function NFTDetailPage() {
                     </Badge>
                   </div>
                 )}
-                <Trophy className={cn(
-                  "w-48 h-48",
-                  isLegendary ? "text-yellow-400" : "text-primary-400"
-                )} />
+                
+                {svgImage ? (
+                  <div 
+                    className="w-full h-full flex items-center justify-center p-4"
+                    dangerouslySetInnerHTML={{ 
+                      __html: svgImage.replace('<svg', '<svg style="width: 100%; height: 100%; object-fit: contain;"')
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Trophy className={cn(
+                      "w-48 h-48",
+                      isLegendary ? "text-yellow-400" : "text-primary-400"
+                    )} />
+                  </div>
+                )}
               </div>
 
               {/* Quick Info */}

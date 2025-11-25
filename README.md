@@ -29,6 +29,7 @@ Each auction round lasts 24 hours (12h commit + 12h reveal). The winner's post i
 
 - 🏆 **NFT Winner Certificates** - ERC-721 NFTs for each winner
 - 👑 **Legendary Soulbound Token** - Non-transferable NFT for highest-tipped winner
+- 👤 **User Profiles** - Dedicated pages for every address showing wins, NFTs, and full history
 - 💰 **Tipping System** - Tip winning posts (90/10 split)
 - 📊 **Leaderboard** - Top 10 winners ranked by wins
 - 📈 **User Stats** - Win rate, streaks, tips received, and more
@@ -190,6 +191,12 @@ npm run dev:mainnet
 │   ├── TREASURY.md                       # Treasury system
 │   └── MAINNET_OPTIMIZATION.md           # RPC optimization
 └── ui/                                   # Next.js frontend
+    ├── src/
+    │   ├── app/profile/[address]/        # User profile pages
+    │   └── lib/
+    │       ├── db.ts                     # SQLite database connection
+    │       └── indexer.ts                # Blockchain event indexer
+
 ```
 
 ## Contract Overview
@@ -524,6 +531,15 @@ All RPC traffic from the Next.js app goes through `/api/rpc`, which acts as a **
 - Records lightweight metrics via `metricsCollector` for monitoring latency, cache hits, and error types.
 
 `wagmi` / `viem` are configured in `ui/src/lib/wagmi.ts` to use this proxy as the transport for all supported chains (local Hardhat, Sepolia, mainnet, Arbitrum, etc.).
+
+### Local Database & Indexing
+
+To provide fast profile pages without hammering RPC endpoints:
+
+- **SQLite Database**: A local `highest-voice.db` file stores indexed blockchain data.
+- **Event Indexer**: `ui/src/lib/indexer.ts` syncs `NewWinner` events from the blockchain.
+- **Lazy Sync**: Accessing a profile page (`/api/profile/[address]`) triggers a lightweight sync to fetch any new events since the last block.
+- **Data**: Stores auction IDs, winners, bids, text, CIDs, and transaction metadata for historical lookup.
 
 ### Frontend Architecture
 

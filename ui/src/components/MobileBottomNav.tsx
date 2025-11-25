@@ -1,6 +1,8 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
+import { useAccount } from 'wagmi';
 import { Zap, Trophy, Users, Wallet, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -16,8 +18,15 @@ export function MobileBottomNav({
   onCreatePost 
 }: MobileBottomNavProps) {
   const pathname = usePathname();
+  const { isConnected, address } = useAccount();
+  const [mounted, setMounted] = useState(false);
 
-  const handleTabClick = (tab: string, href?: string) => {
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const handleTabClick = (tab: string, href?: string, disabled?: boolean) => {
+    if (disabled) return;
     if (href) {
       window.location.href = href;
     }
@@ -29,7 +38,13 @@ export function MobileBottomNav({
     { id: 'leaderboard', icon: Trophy, label: 'Leaderboard', href: '/leaderboard' },
     { id: 'create', icon: Plus, label: 'Bid', isCreate: true },
     { id: 'nft', icon: Users, label: 'NFTs', href: '/nft' },
-    { id: 'portfolio', icon: Wallet, label: 'Portfolio', href: '/portfolio' },
+    { 
+      id: 'profile', 
+      icon: Wallet, 
+      label: 'Profile', 
+      href: mounted && isConnected && address ? `/profile/${address}` : '#',
+      disabled: !mounted || !isConnected 
+    },
   ];
 
   // Determine active tab based on pathname
@@ -66,25 +81,31 @@ export function MobileBottomNav({
                 if (isCreate) {
                   onCreatePost?.();
                 } else {
-                  handleTabClick(tab.id, tab.href);
+                  handleTabClick(tab.id, tab.href, tab.disabled);
                 }
               }}
+              disabled={tab.disabled && !isCreate}
+              title={mounted && tab.disabled ? 'Connect wallet to view profile' : undefined}
               className={cn(
                 'relative flex-1 flex flex-col items-center justify-center py-1.5 rounded-2xl transition-all duration-200 min-h-[52px]',
-                isCreate
+                tab.disabled
+                  ? 'opacity-50 cursor-not-allowed'
+                  : isCreate
                   ? 'bg-primary-600 hover:bg-primary-700 shadow-[0_0_18px_rgba(37,99,235,0.6)]'
                   : isActive
                   ? 'bg-primary-500/15 border border-primary-500/40 shadow-[0_0_12px_rgba(59,130,246,0.4)]'
                   : 'hover:bg-white/5'
               )}
             >
-              {isActive && !isCreate && (
+              {isActive && !isCreate && !tab.disabled && (
                 <div className="absolute top-1 w-1 h-1 bg-primary-400 rounded-full" />
               )}
               <Icon 
                 className={cn(
                   'w-5 h-5 mb-1',
-                  isCreate
+                  tab.disabled
+                    ? 'text-gray-600'
+                    : isCreate
                     ? 'text-white'
                     : isActive
                     ? 'text-primary-400'

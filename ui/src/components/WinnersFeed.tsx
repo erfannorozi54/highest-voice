@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { TrendingUp, Clock, Filter } from 'lucide-react';
+import { TrendingUp, Clock, Filter, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 import { WinnerPost } from './WinnerPost';
 import { Card } from './ui/Card';
@@ -31,9 +31,12 @@ export function WinnersFeed({
   onTipWinner,
   onSharePost,
 }: WinnersFeedProps) {
-  const [filter, setFilter] = useState<'all' | 'recent' | 'top'>('all');
-  const [showAll, setShowAll] = useState(false);
+  const [sortBy, setSortBy] = useState<'time' | 'tips'>('time');
+  const [visibleCount, setVisibleCount] = useState(6);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => Math.floor(Date.now() / 1000));
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
 
   // Update current time every minute to avoid excessive re-renders
   useEffect(() => {
@@ -43,21 +46,65 @@ export function WinnersFeed({
     return () => clearInterval(interval);
   }, []);
 
-  // Memoize filtered winners - now depends on currentTime which updates less frequently
-  const filteredWinners = useMemo(() => {
-    return previousWinners
-      .filter((winner) => {
-        switch (filter) {
-          case 'recent':
-            return currentTime - Number(winner.timestamp) < 7 * 24 * 60 * 60; // Last 7 days
-          case 'top':
-            return winner.post.tipsReceived > BigInt(0);
-          default:
-            return true;
+  // Sort and paginate winners
+  const sortedWinners = useMemo(() => {
+    const sorted = [...previousWinners];
+    
+    if (sortBy === 'time') {
+      // Sort by timestamp (newest first)
+      sorted.sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
+    } else {
+      // Sort by tips received (highest first), then by time
+      sorted.sort((a, b) => {
+        const tipDiff = Number(b.post.tipsReceived - a.post.tipsReceived);
+        if (tipDiff !== 0) return tipDiff;
+        return Number(b.timestamp) - Number(a.timestamp);
+      });
+    }
+    
+    return sorted;
+  }, [previousWinners, sortBy]);
+
+  const visibleWinners = useMemo(() => {
+    return sortedWinners.slice(0, visibleCount);
+  }, [sortedWinners, visibleCount]);
+
+  const hasMore = visibleCount < sortedWinners.length;
+
+  // Load more posts
+  const loadMore = useCallback(() => {
+    if (isLoadingMore || !hasMore) return;
+    
+    setIsLoadingMore(true);
+    // Simulate loading delay for smooth UX
+    setTimeout(() => {
+      setVisibleCount(prev => prev + 6);
+      setIsLoadingMore(false);
+    }, 300);
+  }, [isLoadingMore, hasMore]);
+
+  // Infinite scroll with IntersectionObserver
+  useEffect(() => {
+    if (!loadMoreRef.current || !hasMore) return;
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (first.isIntersecting && !isLoadingMore) {
+          loadMore();
         }
-      })
-      .slice(0, showAll ? undefined : 5);
-  }, [previousWinners, filter, showAll, currentTime]);
+      },
+      { threshold: 0.1 }
+    );
+
+    observerRef.current.observe(loadMoreRef.current);
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [loadMore, hasMore, isLoadingMore]);
 
   return (
     <div className="space-y-6">
@@ -154,34 +201,33 @@ export function WinnersFeed({
         </motion.div>
       )}
 
-      {/* Filter Buttons */}
+      {/* Sort Buttons */}
       <div className="flex items-center justify-center space-x-2 py-2">
         <Button
           size="sm"
-          variant={filter === 'all' ? 'primary' : 'ghost'}
-          onClick={() => setFilter('all')}
-        >
-          All
-        </Button>
-        <Button
-          size="sm"
-          variant={filter === 'recent' ? 'primary' : 'ghost'}
-          onClick={() => setFilter('recent')}
+          variant={sortBy === 'time' ? 'primary' : 'ghost'}
+          onClick={() => {
+            setSortBy('time');
+            setVisibleCount(6);
+          }}
         >
           <Clock className="w-4 h-4 mr-1" />
-          Recent
+          Latest
         </Button>
         <Button
           size="sm"
-          variant={filter === 'top' ? 'primary' : 'ghost'}
-          onClick={() => setFilter('top')}
+          variant={sortBy === 'tips' ? 'primary' : 'ghost'}
+          onClick={() => {
+            setSortBy('tips');
+            setVisibleCount(6);
+          }}
         >
           <TrendingUp className="w-4 h-4 mr-1" />
           Top Tipped
         </Button>
       </div>
 
-      {/* Previous Winners */}
+      {/* Previous Winners Feed */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-xl font-semibold text-white">Previous Winners</h3>
@@ -190,14 +236,14 @@ export function WinnersFeed({
           </Badge>
         </div>
 
-        {filteredWinners.length > 0 ? (
+        {sortedWinners.length > 0 ? (
           <div className="space-y-4">
-            {filteredWinners.map((winner, index) => (
+            {visibleWinners.map((winner, index) => (
               <motion.div
                 key={`${winner.auctionId}-${index}`}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
+                transition={{ delay: Math.min(index * 0.05, 0.3) }}
               >
                 <WinnerPost
                   post={winner.post}
@@ -209,16 +255,23 @@ export function WinnersFeed({
               </motion.div>
             ))}
 
-            {/* Load More Button */}
-            {!showAll && previousWinners.length > 5 && (
-              <div className="text-center pt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowAll(true)}
-                  className="border-primary-500/50 text-primary-400 hover:bg-primary-500/10"
-                >
-                  Show {previousWinners.length - 5} more winners
-                </Button>
+            {/* Infinite Scroll Trigger */}
+            {hasMore && (
+              <div ref={loadMoreRef} className="text-center py-8">
+                {isLoadingMore ? (
+                  <div className="flex flex-col items-center space-y-2">
+                    <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+                    <p className="text-sm text-gray-400">Loading more posts...</p>
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={loadMore}
+                    className="border-primary-500/50 text-primary-400 hover:bg-primary-500/10"
+                  >
+                    Load More ({sortedWinners.length - visibleCount} remaining)
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -226,22 +279,10 @@ export function WinnersFeed({
           <Card variant="glass" className="p-8 text-center">
             <div className="space-y-3">
               <Filter className="w-12 h-12 text-gray-400 mx-auto" />
-              <h4 className="text-lg font-medium text-gray-300">No winners found</h4>
+              <h4 className="text-lg font-medium text-gray-300">No winners yet</h4>
               <p className="text-gray-400">
-                {filter === 'recent' && 'No winners in the last 7 days'}
-                {filter === 'top' && 'No winners have received tips yet'}
-                {filter === 'all' && 'No previous winners to display'}
+                Previous auction winners will appear here
               </p>
-              {filter !== 'all' && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setFilter('all')}
-                  className="text-primary-400"
-                >
-                  View all winners
-                </Button>
-              )}
             </div>
           </Card>
         )}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useReadContract, useWriteContract, useWatchContractEvent } from 'wagmi';
 import { useChainId } from 'wagmi';
 import { parseEther } from 'viem';
@@ -90,20 +90,34 @@ export function useCurrentAuction() {
     },
   });
 
-  // Calculate auction info
-  const auctionInfo: AuctionInfo | undefined = currentAuctionId && countdownEnd ? {
-    id: currentAuctionId,
-    phase: getAuctionPhase(
-      countdownEnd - BigInt(12 * 60 * 60), // commit end = reveal end - 12h
-      countdownEnd
-    ),
-    commitEnd: countdownEnd - BigInt(12 * 60 * 60),
-    revealEnd: countdownEnd,
-    timeRemaining: BigInt(getTimeRemaining(countdownEnd)),
-    minimumCollateral: minimumCollateral || BigInt(0),
-    lastWinner: lastWinnerPost as Post | undefined,
-    lastWinnerTime: lastWinnerTime,
-  } : undefined;
+  const [auctionInfo, setAuctionInfo] = useState<AuctionInfo | undefined>(undefined);
+
+  useEffect(() => {
+    if (currentAuctionId && countdownEnd) {
+      const commitEnd = countdownEnd - BigInt(12 * 60 * 60);
+      const revealEnd = countdownEnd;
+
+      const updateAuctionInfo = () => {
+        setAuctionInfo({
+          id: currentAuctionId,
+          phase: getAuctionPhase(commitEnd, revealEnd),
+          commitEnd: commitEnd,
+          revealEnd: revealEnd,
+          timeRemaining: BigInt(getTimeRemaining(countdownEnd)),
+          minimumCollateral: minimumCollateral || BigInt(0),
+          lastWinner: lastWinnerPost as Post | undefined,
+          lastWinnerTime: lastWinnerTime,
+        });
+      };
+
+      updateAuctionInfo();
+      const interval = setInterval(updateAuctionInfo, 1000);
+
+      return () => clearInterval(interval);
+    } else {
+      setAuctionInfo(undefined);
+    }
+  }, [currentAuctionId, countdownEnd, minimumCollateral, lastWinnerPost, lastWinnerTime]);
 
   return {
     auctionInfo,
@@ -463,7 +477,7 @@ export function useLegendaryToken() {
   return {
     legendaryData,
     isLoading,
-    hasLegendary: legendaryData?.tokenId && legendaryData.tokenId > 0n,
+    hasLegendary: Boolean(legendaryData?.tokenId && legendaryData.tokenId > 0n),
   };
 }
 
@@ -500,10 +514,29 @@ export function useWinnerNFT(tokenId?: bigint) {
   };
 }
 
+// Cache for previous winners with 5-minute expiration
+const winnersCache = new Map<number, {
+  data: Array<{
+    post: Post;
+    auctionId: bigint;
+    timestamp: bigint;
+  }>;
+  timestamp: number;
+}>();
+
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+
 // Hook for fetching winners data (current and previous)
 export function useWinners() {
   const chainId = useChainId();
   const contractAddress = getContractAddress(chainId, 'highestVoice') || undefined;
+  const [previousWinners, setPreviousWinners] = useState<Array<{
+    post: Post;
+    auctionId: bigint;
+    timestamp: bigint;
+  }>>([]);
+  const [isLoadingPrevious, setIsLoadingPrevious] = useState(true);
+  const [refreshCounter, setRefreshCounter] = useState(0);
 
   // Get last winner post data
   const { data: lastWinnerPostData } = useReadContract({
@@ -538,15 +571,73 @@ export function useWinners() {
     },
   });
 
+  // Fetch previous winners from database API with caching
+  useEffect(() => {
+    const fetchPreviousWinners = async () => {
+      // Check cache first
+      const cached = winnersCache.get(chainId);
+      const now = Date.now();
+      
+      if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+        // Use cached data if it's still valid
+        setPreviousWinners(cached.data);
+        setIsLoadingPrevious(false);
+        return;
+      }
+
+      try {
+        setIsLoadingPrevious(true);
+        const response = await fetch(`/api/winners?chainId=${chainId}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch winners');
+        }
+        const data = await response.json();
+        
+        // Transform database posts to winner format and filter out zero-address/empty winners
+        const winners = (data.posts || [])
+          .filter((post: any) => {
+            const winner = post.winner;
+            // Filter out zero address, empty, null, or undefined winners
+            return winner && 
+                   winner !== '0x0000000000000000000000000000000000000000' &&
+                   winner.toLowerCase() !== '0x0000000000000000000000000000000000000000';
+          })
+          .map((post: any) => ({
+            post: {
+              owner: post.winner as `0x${string}`,
+              text: post.text || '',
+              imageCid: post.imageCid || '',
+              voiceCid: post.voiceCid || '',
+              tipsReceived: BigInt(post.tipsReceived || '0'),
+            },
+            auctionId: BigInt(post.auctionId),
+            timestamp: BigInt(post.blockNumber), // Using blockNumber as timestamp approximation
+          }));
+        
+        // Update cache
+        winnersCache.set(chainId, {
+          data: winners,
+          timestamp: now,
+        });
+        
+        setPreviousWinners(winners);
+      } catch (error) {
+        console.error('Error fetching previous winners:', error);
+        setPreviousWinners([]);
+      } finally {
+        setIsLoadingPrevious(false);
+      }
+    };
+
+    if (chainId) {
+      fetchPreviousWinners();
+    }
+  }, [chainId, refreshCounter]);
+
   // If we have winner data, then there's a current winner
   const hasWinners = !!(lastWinnerPostData && lastWinnerTime && lastWinnerAuctionId && Number(lastWinnerAuctionId) > 0);
 
   let currentWinner = undefined;
-  const previousWinners: Array<{
-    post: Post;
-    auctionId: bigint;
-    timestamp: bigint;
-  }> = [];
 
   if (hasWinners && lastWinnerPostData && lastWinnerTime && lastWinnerAuctionId) {
     const winnerAddress = lastWinnerPostData[0] as `0x${string}`;
@@ -562,14 +653,19 @@ export function useWinners() {
       auctionId: lastWinnerAuctionId,
       timestamp: lastWinnerTime,
     };
-
-    // For now, we'll keep previous winners empty - can be expanded later to fetch more historical winners
-    // This would require fetching winnerNFTs for earlier tokenIds
   }
+
+  // Function to manually refresh winners (clears cache and triggers refetch)
+  const refreshWinners = useCallback(() => {
+    winnersCache.delete(chainId);
+    setRefreshCounter(prev => prev + 1);
+  }, [chainId]);
 
   return {
     currentWinner,
     previousWinners,
-    hasWinners: !!hasWinners,
+    hasWinners: !!hasWinners || previousWinners.length > 0,
+    isLoadingPrevious,
+    refreshWinners,
   };
 }

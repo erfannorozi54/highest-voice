@@ -108,7 +108,7 @@ const LogoLoader: React.FC<LogoLoaderProps> = ({
               width={config.logoMd}
               height={config.logoMd}
               className="hidden md:block"
-              priority
+              style={{ height: "auto" }}
             />
             <Image
               src="/logo-white.png"
@@ -116,7 +116,7 @@ const LogoLoader: React.FC<LogoLoaderProps> = ({
               width={config.logo}
               height={config.logo}
               className="md:hidden"
-              priority
+              style={{ height: "auto" }}
             />
           </motion.div>
         </motion.div>
@@ -218,6 +218,7 @@ const InlineLogoLoader: React.FC<InlineLogoLoaderProps> = ({ className }) => {
         width={16}
         height={16}
         className="opacity-70"
+        style={{ height: "auto" }}
       />
     </motion.div>
   );

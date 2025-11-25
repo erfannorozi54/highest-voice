@@ -11,6 +11,9 @@ Your project has **API routes** that require a Node.js server:
 ❌ /api/ipfs/[cid]       - Dynamic IPFS routes
 ❌ /api/rpc-monitor      - RPC monitoring
 ❌ /api/test-ipfs        - IPFS testing
+❌ /api/profile/[addr]   - Multi-network profile data (uses SQLite DB)
+❌ /api/sync             - Manual sync trigger & status (per-network)
+❌ /api/sync-worker      - Background sync worker status
 ```
 
 **API routes are NOT compatible with static export** because they need:
@@ -19,12 +22,13 @@ Your project has **API routes** that require a Node.js server:
 - Environment variables
 - In-memory state (rate limiting, caching)
 - Node.js runtime
+- **Write access to local filesystem (SQLite database)**
 
 ---
 
 ## 📦 Step 0: Build & Transfer to VPS
 
-Before deploying with any of the options below, you need to build the project locally and transfer it to your VPS.
+Before deploying, you need to build the project locally and transfer it to your VPS.
 
 ### **0.1: Build Project Locally**
 
@@ -60,6 +64,7 @@ tar -czf highest-voice-deploy.tar.gz \
   --exclude='ui/.next/cache' \
   --exclude='ui/.git' \
   --exclude='ui/.env*' \
+  --exclude='ui/highest-voice.db*' \
   ui/.next \
   ui/public \
   ui/package.json \
@@ -81,10 +86,10 @@ ls -lh highest-voice-deploy.tar.gz
 
 **What's excluded:**
 
-- ❌ `node_modules/` - Will install on VPS
+- ❌ `node_modules/` - Will install on VPS (native modules like `better-sqlite3` need to be built on target OS)
 - ❌ `.next/cache/` - Build cache (not needed)
 - ❌ `.env*` files - Environment variables set via systemd
-- ❌ `server.js` - Will create on VPS if needed (Option 1 only)
+- ❌ `highest-voice.db` - Database will be created on the server
 
 ---
 
@@ -102,14 +107,6 @@ scp highest-voice-deploy.tar.gz ${VPS_USER}@${VPS_IP}:/tmp/
 ssh ${VPS_USER}@${VPS_IP} "ls -lh /tmp/highest-voice-deploy.tar.gz"
 ```
 
-**Alternative: Using rsync (if you prefer):**
-
-```bash
-rsync -avz --progress \
-  highest-voice-deploy.tar.gz \
-  ${VPS_USER}@${VPS_IP}:/tmp/
-```
-
 ---
 
 ### **0.4: VPS Initial Setup**
@@ -123,12 +120,16 @@ ssh ${VPS_USER}@${VPS_IP}
 # Update system
 sudo apt update && sudo apt upgrade -y
 
-# Install Node.js 18.x (LTS)
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+# Install Node.js 22.x (LTS) or 22.x
+# Next.js 16 requires Node.js >= 20.9.0
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs
 
+# Install build tools (REQUIRED for better-sqlite3)
+sudo apt install -y build-essential python3
+
 # Verify Node.js installation
-node --version  # Should show v18.x.x
+node --version  # Should show v20.x.x or higher
 npm --version
 
 # Install nginx
@@ -150,7 +151,7 @@ sudo chown -R www-data:www-data /var/www/highest-voice
 sudo chmod -R 755 /var/www/highest-voice
 ```
 
-**Important:** Files will be owned by `www-data:www-data` so nginx and the Node.js service can access them.
+**Important:** Files will be owned by `www-data:www-data` so nginx and the Node.js service can access them. This is **CRITICAL** for the SQLite database (`highest-voice.db`) which requires write access to the directory.
 
 ---
 
@@ -167,65 +168,19 @@ tar -xzf /tmp/highest-voice-deploy.tar.gz
 sudo chown -R www-data:www-data /var/www/highest-voice
 
 # Install production dependencies as www-data user
+# This will compile better-sqlite3
 cd ui
 sudo -u www-data npm install --production
-
-# Note: This will generate package-lock.json automatically
-
-# If using Option 1 (Hybrid), create server.js
-# (Skip this if using Option 2 - Full Proxy)
-cat > server.js << 'EOF'
-const { createServer } = require('http')
-const { parse } = require('url')
-const next = require('next')
-
-const dev = process.env.NODE_ENV !== 'production'
-const hostname = 'localhost'
-const port = parseInt(process.env.PORT || '3000', 10)
-
-const app = next({ dev, hostname, port })
-const handle = app.getRequestHandler()
-
-app.prepare().then(() => {
-  createServer(async (req, res) => {
-    try {
-      const parsedUrl = parse(req.url, true)
-      
-      // Only handle API routes
-      if (parsedUrl.pathname.startsWith('/api/')) {
-        await handle(req, res, parsedUrl)
-      } else {
-        // Reject non-API requests (nginx handles static files)
-        res.statusCode = 404
-        res.end('Not Found')
-      }
-    } catch (err) {
-      console.error('Error occurred handling', req.url, err)
-      res.statusCode = 500
-      res.end('internal server error')
-    }
-  }).listen(port, (err) => {
-    if (err) throw err
-    console.log(`> API server ready on http://${hostname}:${port}`)
-  })
-})
-EOF
-
-# Fix ownership of server.js
-sudo chown www-data:www-data server.js
 
 # Verify the build
 ls -la .next/
 ls -la public/
 
 # Test that server starts (Ctrl+C to stop)
-# For Option 1: node server.js
-# For Option 2: npm start
-npm start
+# Note: We use sudo -u www-data to test permissions
+sudo -u www-data npm start
 # Should show: ✓ Ready on http://localhost:3000
 ```
-
-**Note:** Environment variables will be set via systemd service (configured in deployment options below).
 
 ---
 
@@ -249,250 +204,47 @@ sudo ufw status
 
 ---
 
-### **0.7: Quick Verification Checklist**
+## ✅ Deployment Strategy: Full Next.js with Nginx Reverse Proxy
 
-Before proceeding to deployment options:
+We will use Nginx as a reverse proxy to handle SSL and forward traffic to the Next.js application running on a local port.
 
-- [ ] ✅ Node.js installed (v18+): `node --version`
-- [ ] ✅ Nginx installed: `nginx -v`
-- [ ] ✅ Files extracted to `/var/www/highest-voice/ui/`
-- [ ] ✅ `.next/` directory exists with build files
-- [ ] ✅ `node_modules/` installed (production only)
-- [ ] ✅ `server.js` created (if using Option 1)
-- [ ] ✅ Firewall configured (ports 22, 80, 443 open)
-- [ ] ✅ Have all environment variable values ready (for systemd config)
-
----
-
-## ✅ Recommended Deployment Strategies
-
-### **Option 1: Hybrid (Static Frontend + API Backend)** ⭐ RECOMMENDED
-
-Deploy static frontend with nginx, proxy API requests to Node.js backend.
-
-#### **Option 1 Architecture:**
+#### **Architecture:**
 
 ```text
-User Request
+User Request (from any network)
     ↓
-┌─────────────────────┐
-│   Nginx (Port 80)   │
-└─────────────────────┘
-    ↓                ↓
-Static Files    API Proxy
-(HTML/CSS/JS)      ↓
-              ┌──────────────────┐
-              │ Next.js Server   │
-              │ (Port 3000)      │
-              │ API Routes Only  │
-              └──────────────────┘
-```
-
-#### **Steps:**
-
-**1. Build optimized static assets:**
-
-```bash
-cd ui
-npm run build
-```
-
-**2. Create nginx configuration:**
-
-```nginx
-# /etc/nginx/sites-available/highest-voice
-server {
-    listen 80;
-    server_name your-domain.com;
-    
-    # Root directory for static files
-    root /var/www/highest-voice/ui/out;
-    
-    # Enable gzip compression
-    gzip on;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
-    gzip_min_length 1000;
-    
-    # Static assets (Next.js generates in .next/static)
-    location /_next/static/ {
-        alias /var/www/highest-voice/ui/.next/static/;
-        expires 1y;
-        access_log off;
-        add_header Cache-Control "public, immutable";
-    }
-    
-    # API routes - proxy to Node.js backend
-    location /api/ {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-        
-        # Timeout settings for file uploads
-        proxy_read_timeout 300s;
-        proxy_connect_timeout 300s;
-        proxy_send_timeout 300s;
-        client_max_body_size 2M;
-    }
-    
-    # All other routes - serve static HTML
-    location / {
-        try_files $uri $uri.html $uri/index.html /index.html;
-        expires 1h;
-        add_header Cache-Control "public, must-revalidate";
-    }
-    
-    # Security headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    
-    # Logs
-    access_log /var/log/nginx/highest-voice-access.log;
-    error_log /var/log/nginx/highest-voice-error.log;
-}
-```
-
-**3. Run Next.js server for API routes only:**
-
-Create a custom server that only serves API routes:
-
-```javascript
-// server.js
-const { createServer } = require('http')
-const { parse } = require('url')
-const next = require('next')
-
-const dev = process.env.NODE_ENV !== 'production'
-const hostname = 'localhost'
-const port = 3000
-
-const app = next({ dev, hostname, port })
-const handle = app.getRequestHandler()
-
-app.prepare().then(() => {
-  createServer(async (req, res) => {
-    try {
-      const parsedUrl = parse(req.url, true)
-      
-      // Only handle API routes
-      if (parsedUrl.pathname.startsWith('/api/')) {
-        await handle(req, res, parsedUrl)
-      } else {
-        // Reject non-API requests
-        res.statusCode = 404
-        res.end('Not Found')
-      }
-    } catch (err) {
-      console.error('Error occurred handling', req.url, err)
-      res.statusCode = 500
-      res.end('internal server error')
-    }
-  }).listen(port, (err) => {
-    if (err) throw err
-    console.log(`> API server ready on http://${hostname}:${port}`)
-  })
-})
-```
-
-**4. Setup systemd service:**
-
-```ini
-# /etc/systemd/system/highest-voice-api.service
-[Unit]
-Description=HighestVoice API Server
-After=network.target
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/var/www/highest-voice/ui
-Environment="NODE_ENV=production"
-
-# WalletConnect Configuration (REQUIRED for wallet connections)
-Environment="NEXT_PUBLIC_PROJECT_ID=your_walletconnect_project_id"
-
-# Infura RPC Configuration (Server-side)
-Environment="INFURA_ID_SEPOLIA=your_infura_id_sepolia"
-Environment="INFURA_SECRET_SEPOLIA=your_infura_secret_sepolia"
-Environment="INFURA_ID_MAINNET=your_infura_id_mainnet"
-Environment="INFURA_SECRET_MAINNET=your_infura_secret_mainnet"
-
-# IPFS/Pinata Configuration (Server-side)
-Environment="PINATA_JWT=your_pinata_jwt_token"
-Environment="PINATA_GATEWAY=https://your-gateway.mypinata.cloud"
-
-# Contract Addresses (Public - set based on your deployment)
-# Arbitrum Sepolia Testnet
-Environment="NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_ARBITRUM_SEPOLIA=0x..."
-Environment="NEXT_PUBLIC_KEEPER_CONTRACT_ARBITRUM_SEPOLIA=0x..."
-
-# Arbitrum One Mainnet (if deployed)
-Environment="NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_ARBITRUM=0x..."
-Environment="NEXT_PUBLIC_KEEPER_CONTRACT_ARBITRUM=0x..."
-
-# Add other network contracts as needed:
-# Environment="NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_MAINNET=0x..."
-# Environment="NEXT_PUBLIC_KEEPER_CONTRACT_MAINNET=0x..."
-
-ExecStart=/usr/bin/node server.js
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-**5. Deploy:**
-
-```bash
-# Copy files
-sudo mkdir -p /var/www/highest-voice/ui
-sudo cp -r ui/.next /var/www/highest-voice/ui/
-sudo cp -r ui/public /var/www/highest-voice/ui/
-sudo cp ui/server.js /var/www/highest-voice/ui/
-sudo cp ui/package.json /var/www/highest-voice/ui/
-
-# Install production dependencies
-cd /var/www/highest-voice/ui
-sudo npm install --production
-
-# Enable and start services
-sudo systemctl enable highest-voice-api
-sudo systemctl start highest-voice-api
-
-# Enable nginx site
-sudo ln -s /etc/nginx/sites-available/highest-voice /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
----
-
-### **Option 2: Full Next.js with Nginx Reverse Proxy**
-
-Simpler but uses more resources - nginx proxies everything to Next.js.
-
-#### **Option 2 Architecture:**
-
-```text
-User Request
+┌─────────────────────────────────┐
+│   Nginx (Port 80/443)           │
+│   Reverse Proxy + SSL           │
+└─────────────────────────────────┘
     ↓
-┌─────────────────────┐
-│   Nginx (Port 80)   │
-│   Reverse Proxy     │
-└─────────────────────┘
-    ↓
-┌──────────────────────┐
-│  Next.js Server      │
-│  (Port 3000)         │
-│  Full SSR + API      │
-└──────────────────────┘
+┌─────────────────────────────────────────────────┐
+│  Next.js Server (Port 3001)                     │
+│  ┌───────────────────────────────────────────┐  │
+│  │  HTTP Server                              │  │
+│  │  - API Routes (network-aware)             │  │
+│  │  - SSR Pages                              │  │
+│  └───────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────┐  │
+│  │  Integrated Sync Worker ⭐                │  │
+│  │  - Auto-detects all networks              │  │
+│  │  - Syncs every 30s                        │  │
+│  │  - Validates & heals gaps                 │  │
+│  └───────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────┐  │
+│  │  Multi-Network SQLite DB                  │  │
+│  │  - posts (chainId, auctionId, ...)        │  │
+│  │  - tips (chainId, ...)                    │  │
+│  │  - empty_auctions (chainId, ...)          │  │
+│  │  - sync_state (chainId, key, value)       │  │
+│  └───────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────┘
+    ↕
+Blockchain Networks
+- Arbitrum Sepolia (421614)
+- Arbitrum One (42161)
+- Polygon (137)
+- etc. (all configured networks)
 ```
 
 #### **Nginx Configuration:**
@@ -509,7 +261,7 @@ server {
     
     # Proxy all requests to Next.js
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://localhost:3001;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -522,7 +274,7 @@ server {
         # Timeout settings
         proxy_read_timeout 300s;
         proxy_connect_timeout 300s;
-        client_max_body_size 2M;
+        client_max_body_size 10M;
     }
     
     # Security headers
@@ -543,9 +295,13 @@ After=network.target
 [Service]
 Type=simple
 User=www-data
+Group=www-data
 WorkingDirectory=/var/www/highest-voice/ui
 Environment="NODE_ENV=production"
 Environment="PORT=3001"
+
+# Site URL for metadata (Open Graph, Twitter cards)
+Environment="NEXT_PUBLIC_SITE_URL=https://your-domain.com"
 
 # WalletConnect Configuration (REQUIRED for wallet connections)
 Environment="NEXT_PUBLIC_PROJECT_ID=your_walletconnect_project_id"
@@ -575,6 +331,11 @@ Environment="NEXT_PUBLIC_KEEPER_CONTRACT_ARBITRUM=0x..."
 # Environment="NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_SEPOLIA=0x..."
 # Environment="NEXT_PUBLIC_KEEPER_CONTRACT_SEPOLIA=0x..."
 
+# Background Sync Worker Configuration (NEW - Integrated)
+# The sync worker runs automatically inside Next.js and syncs ALL configured networks
+Environment="SYNC_INTERVAL=30000"
+Environment="SYNC_VALIDATION=true"
+
 ExecStart=/usr/bin/npm start
 Restart=on-failure
 RestartSec=10
@@ -588,7 +349,12 @@ WantedBy=multi-user.target
 - `NEXT_PUBLIC_PROJECT_ID`: Get from [WalletConnect Cloud](https://cloud.walletconnect.com) (required for wallet connections)
 - `PINATA_GATEWAY`: Optional but recommended for faster IPFS retrieval
 - Contract addresses: Copy from your deployment files in `/deployments/` directory
-- Only include contract addresses for networks you've deployed to
+- **Multi-Network Support**: Configure contract addresses for ALL networks you want to support. The sync worker will automatically detect and sync each network independently.
+- **Integrated Sync Worker**: The blockchain sync worker runs automatically inside Next.js (no separate service needed). It syncs all configured networks every 30 seconds.
+  - `SYNC_INTERVAL`: Sync frequency in milliseconds (default: 30000 = 30 seconds)
+  - `SYNC_VALIDATION`: Enable gap detection and healing (default: true)
+- **Database Permissions**: The `User=www-data` directive ensures the process runs as `www-data`, which has write permissions to `/var/www/highest-voice/ui` (configured in Step 0.4). This allows the `highest-voice.db` SQLite file to be created and updated.
+- **Automatic Migration**: On first run, the database will automatically migrate to support multiple networks if you have existing data.
 
 #### **Deploy and Start Services:**
 
@@ -620,48 +386,7 @@ curl http://localhost  # Should get proxied response from nginx
 
 ---
 
-### **Option 3: Standalone Next.js Server** (No nginx)
-
-Run Next.js directly on port 80 (not recommended for production).
-
-```bash
-# Build
-cd ui
-npm run build
-
-# Run on port 80 (requires root or capabilities)
-sudo PORT=80 npm start
-```
-
-**Pros:**
-
-- ✅ Simplest setup
-- ✅ No nginx configuration
-
-**Cons:**
-
-- ❌ No static file caching
-- ❌ No load balancing
-- ❌ No SSL termination
-- ❌ Poor for high traffic
-
----
-
-## 🎯 Comparison
-
-| Feature | Option 1 (Hybrid) | Option 2 (Full Proxy) | Option 3 (Standalone) |
-|---------|-------------------|----------------------|----------------------|
-| **Performance** | ⭐⭐⭐⭐⭐ Best | ⭐⭐⭐⭐ Good | ⭐⭐⭐ OK |
-| **Complexity** | ⭐⭐⭐ Medium | ⭐⭐ Easy | ⭐ Easiest |
-| **Static Caching** | ✅ Yes | ❌ Limited | ❌ No |
-| **Resource Usage** | ⭐⭐⭐⭐⭐ Low | ⭐⭐⭐ Medium | ⭐⭐⭐ Medium |
-| **Scalability** | ⭐⭐⭐⭐⭐ Excellent | ⭐⭐⭐⭐ Good | ⭐⭐ Limited |
-| **SSL Support** | ✅ Easy (nginx) | ✅ Easy (nginx) | ⚠️ Manual |
-| **CDN Compatible** | ✅ Yes | ❌ No | ❌ No |
-
----
-
-## 🔒 SSL/HTTPS Setup (All Options)
+## 🔒 SSL/HTTPS Setup
 
 Use Let's Encrypt with Certbot:
 
@@ -688,6 +413,10 @@ Create `.env.production` in your `ui` directory:
 # ========================================
 # Frontend Client Configuration (Public)
 # ========================================
+
+# Site URL for metadata (Open Graph, Twitter cards)
+# Use your actual domain
+NEXT_PUBLIC_SITE_URL=https://your-domain.com
 
 # WalletConnect Project ID (REQUIRED)
 # Get FREE from https://cloud.walletconnect.com
@@ -735,11 +464,21 @@ PINATA_JWT=your_pinata_jwt_token
 PINATA_GATEWAY=https://your-gateway.mypinata.cloud
 
 # ========================================
+# Background Sync Worker (Integrated)
+# ========================================
+
+# Sync interval in milliseconds (default: 30000 = 30 seconds)
+SYNC_INTERVAL=30000
+
+# Enable validation and gap healing (default: true)
+SYNC_VALIDATION=true
+
+# ========================================
 # Next.js Server Configuration
 # ========================================
 
 NODE_ENV=production
-PORT=3000
+PORT=3001
 ```
 
 ⚠️ **Security:**
@@ -757,54 +496,148 @@ PORT=3000
 
 ---
 
-## 🚀 Deployment Checklist
+## 🌐 Multi-Network Deployment Tips
 
-### **Pre-Deployment:**
+### **How It Works:**
 
-- [ ] Set all environment variables
-- [ ] Test build locally: `npm run build && npm start`
-- [ ] Verify API routes work
-- [ ] Test IPFS uploads
-- [ ] Test RPC proxy
+1. **Configure multiple networks** by setting contract addresses in environment variables
+2. **Sync worker automatically detects** all configured networks on startup
+3. **Each network syncs independently** - data is isolated by `chainId`
+4. **Users see data for their selected network** - UI passes `chainId` to API calls
 
-### **Server Setup:**
+### **Example: Supporting Arbitrum Sepolia + Arbitrum One**
 
-- [ ] Install Node.js (v18+)
-- [ ] Install nginx
-- [ ] Install PM2 or systemd service
-- [ ] Configure firewall (ports 80, 443)
-- [ ] Setup SSL certificate
+```bash
+# In systemd service or .env.production:
+Environment="NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_ARBITRUM_SEPOLIA=0xTestnetAddr..."
+Environment="NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_ARBITRUM=0xMainnetAddr..."
+```
 
-### **Deployment:**
+On startup, logs will show:
+```
+🔗 Detected network: Arbitrum Sepolia (Chain 421614)
+🔗 Detected network: Arbitrum One (Chain 42161)
 
-- [ ] Copy files to server
-- [ ] Install dependencies: `npm install --production`
-- [ ] Build: `npm run build`
-- [ ] Configure nginx
-- [ ] Start services
-- [ ] Test all routes
-- [ ] Monitor logs
+╔════════════════════════════════════════════════════╗
+║    HighestVoice Background Sync Worker Started     ║
+╚════════════════════════════════════════════════════╝
+Networks: 2 configured
+  - Arbitrum Sepolia (Chain 421614)
+  - Arbitrum One (Chain 42161)
+```
 
-### **Post-Deployment:**
+### **Database Structure:**
 
-- [ ] Setup monitoring (PM2, logs)
-- [ ] Configure backups
-- [ ] Setup CI/CD (optional)
-- [ ] Load testing
-- [ ] Security audit
+All data is stored in a single `highest-voice.db` file with `chainId` column:
+
+```sql
+-- Example: Same auction ID on different networks
+INSERT INTO posts (chainId, auctionId, winner, ...)
+VALUES (421614, 1, '0xTestWinner...', ...);  -- Arbitrum Sepolia
+
+INSERT INTO posts (chainId, auctionId, winner, ...)
+VALUES (42161, 1, '0xMainWinner...', ...);   -- Arbitrum One
+
+-- Data is completely isolated by chainId!
+```
+
+### **API Usage:**
+
+```bash
+# Get profile data for specific network
+curl "http://localhost:3001/api/profile/0x123...?chainId=42161"
+
+# Returns only Arbitrum One data
+{
+  "chainId": 42161,
+  "posts": [...],  // Arbitrum One posts only
+  "stats": {...}   // Arbitrum One stats only
+}
+```
+
+### **Adding New Networks:**
+
+1. Deploy contract to new network (e.g., Polygon)
+2. Add contract address to environment variables:
+   ```bash
+   Environment="NEXT_PUBLIC_HIGHEST_VOICE_CONTRACT_POLYGON=0xNewAddr..."
+   ```
+3. Restart service:
+   ```bash
+   sudo systemctl restart highest-voice
+   ```
+4. Sync worker automatically detects and starts syncing the new network!
+
+### **Network-Specific Monitoring:**
+
+```bash
+# Check all networks
+curl http://localhost:3001/api/sync
+
+# Check specific network
+curl http://localhost:3001/api/sync?chainId=42161
+
+# Response shows per-network stats
+{
+  "chainId": 42161,
+  "counts": {
+    "posts": 1234,
+    "tips": 5678,
+    "emptyAuctions": 3
+  },
+  "validation": {
+    "lastAuctionId": 1234,
+    "hasGaps": false
+  }
+}
+```
 
 ---
 
 ## 🔍 Monitoring & Logs
 
-### **View Next.js logs:**
+### **View Next.js logs (includes sync worker):**
 
 ```bash
-# If using systemd
-sudo journalctl -u highest-voice-api -f
+# Using systemd - see both Next.js and sync worker logs
+sudo journalctl -u highest-voice -f
 
-# If using PM2
-pm2 logs highest-voice
+# Filter for sync worker messages
+sudo journalctl -u highest-voice -f | grep "sync"
+sudo journalctl -u highest-voice -f | grep "Chain"
+
+# You should see messages like:
+# "🔗 Detected network: Arbitrum Sepolia (Chain 421614)"
+# "[Chain 421614] Synced 5 new posts"
+# "✅ All networks synced in 2500ms"
+```
+
+### **Check sync worker status:**
+
+```bash
+# Via API endpoint
+curl http://localhost:3001/api/sync-worker
+
+# Response shows which networks are being synced:
+# {
+#   "running": true,
+#   "interval": 30000,
+#   "validation": true,
+#   "networks": [
+#     {"chainId": 421614, "name": "Arbitrum Sepolia", ...},
+#     {"chainId": 42161, "name": "Arbitrum One", ...}
+#   ]
+# }
+```
+
+### **Check sync status per network:**
+
+```bash
+# All networks
+curl http://localhost:3001/api/sync
+
+# Specific network
+curl http://localhost:3001/api/sync?chainId=42161
 ```
 
 ### **View nginx logs:**
@@ -817,7 +650,7 @@ sudo tail -f /var/log/nginx/highest-voice-error.log
 ### **Check service status:**
 
 ```bash
-sudo systemctl status highest-voice-api
+sudo systemctl status highest-voice
 sudo systemctl status nginx
 ```
 
@@ -841,93 +674,52 @@ location /api/ {
 }
 ```
 
-### **2. Use PM2 cluster mode:**
-
-```bash
-# Install PM2
-sudo npm install -g pm2
-
-# Start with clustering
-pm2 start server.js -i max --name highest-voice-api
-
-# Save configuration
-pm2 save
-pm2 startup
-```
-
-### **3. CDN for static assets:**
-
-If using Option 1 (Hybrid), you can serve `/_next/static/` from a CDN like Cloudflare or AWS CloudFront.
-
----
-
-## 🐳 Docker Alternative (Bonus)
-
-If you prefer Docker:
-
-```dockerfile
-# Dockerfile
-FROM node:18-alpine AS builder
-
-WORKDIR /app
-COPY ui/package*.json ./
-RUN npm ci --production=false
-
-COPY ui/ ./
-RUN npm run build
-
-FROM node:18-alpine
-
-WORKDIR /app
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./
-COPY ui/server.js ./
-
-ENV NODE_ENV=production
-ENV PORT=3000
-
-EXPOSE 3000
-CMD ["node", "server.js"]
-```
-
-```bash
-# Build
-docker build -t highest-voice .
-
-# Run
-docker run -d \
-  -p 3000:3000 \
-  -e PINATA_JWT=$PINATA_JWT \
-  -e INFURA_ID_SEPOLIA=$INFURA_ID_SEPOLIA \
-  --name highest-voice \
-  highest-voice
-```
-
 ---
 
 ## 📝 Summary
 
-**For your project, I recommend:**
+**This deployment guide uses:**
 
-1. **Option 1 (Hybrid)** for production - best performance and scalability
-2. **Option 2 (Full Proxy)** for simplicity - easier to maintain
-3. **Option 3 (Standalone)** for development/testing only
+1. **Next.js standalone server** listening on port 3001
+2. **Nginx** as a reverse proxy on port 80/443
+3. **Systemd** to manage the Node.js process and environment variables
+4. **SQLite** for multi-network data storage (requires filesystem write access)
+5. **Integrated sync worker** that automatically syncs ALL configured blockchain networks
 
 **You CANNOT use `next export`** because you have API routes that require Node.js.
 
-The hybrid approach gives you:
+This approach gives you:
 
-- ⚡ **Fast static file serving** (nginx)
+- ⚡ **Fast static file serving** (via Nginx)
 - 🔒 **Secure API handling** (Node.js backend)
-- 📈 **Best performance** (caching, CDN-ready)
-- 💰 **Lower costs** (fewer server resources)
+- 📈 **Performance** (caching, compression)
+- 💾 **Persistent Data** (SQLite database for multi-network profiles)
+- 🌐 **Multi-Network Support** (automatically syncs all configured networks)
+- 🔄 **Self-Healing Sync** (detects and fixes data gaps automatically)
+- 🎯 **One Service** (sync worker integrated - no separate daemon needed)
+
+**Key Features:**
+
+- **Multi-Network Database**: One database handles data from all networks (Arbitrum, Polygon, etc.)
+- **Automatic Detection**: Sync worker detects all configured networks from environment variables
+- **Independent Sync**: Each network syncs independently with its own blockchain
+- **Network-Specific Data**: Users see data for their currently selected network in the UI
+- **Gap Detection**: Automatically detects and heals missing data (including auctions with no winner)
 
 **Next steps:**
 
-1. Choose your deployment option
-2. Setup server infrastructure
-3. Configure environment variables
-4. Deploy and test!
+1. Setup server infrastructure
+2. Configure environment variables (including contract addresses for all networks)
+3. Deploy and test!
+4. Monitor sync worker logs to verify all networks are syncing
+
+**Monitoring:**
+```bash
+# Check which networks are syncing
+curl http://localhost:3001/api/sync-worker
+
+# View sync logs
+sudo journalctl -u highest-voice -f | grep "sync"
+```
 
 Good luck! 🚀

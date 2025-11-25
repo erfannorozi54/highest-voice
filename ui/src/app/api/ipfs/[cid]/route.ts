@@ -172,9 +172,9 @@ async function cacheFile(cid: string, data: Buffer, contentType: string, size: n
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { cid: string } }
+  { params }: { params: Promise<{ cid: string }> }
 ) {
-  const { cid } = params;
+  const { cid } = await params;
 
   if (!cid || typeof cid !== 'string') {
     return NextResponse.json({ error: 'Invalid CID' }, { status: 400 });
@@ -237,9 +237,9 @@ export async function GET(
 // Optional: Add cache cleanup endpoint
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { cid: string } }
+  { params }: { params: Promise<{ cid: string }> }
 ) {
-  const { cid } = params;
+  const { cid } = await params;
 
   try {
     const { dataPath, metaPath } = await getCacheFilePath(cid);

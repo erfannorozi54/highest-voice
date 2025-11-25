@@ -10,6 +10,7 @@ import localFont from 'next/font/local';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'),
   title: 'HighestVoice - Decentralized Voice Auction',
   description: 'Permissionless, second-price sealed-bid auction for projecting the loudest voice on-chain. Win NFTs, earn rewards, and make your voice heard in the decentralized world.',
   keywords: ['blockchain', 'ethereum', 'auction', 'nft', 'defi', 'web3', 'decentralized'],

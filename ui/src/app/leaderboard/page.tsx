@@ -8,6 +8,7 @@ import { Header } from '@/components/Header';
 import { MobileHeader } from '@/components/MobileHeader';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { LegendaryHolder } from '@/components/LegendaryHolder';
+import { AddressLink } from '@/components/AddressLink';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -193,9 +194,11 @@ export default function LeaderboardPage() {
                       <Medal className="w-12 h-12 text-white" />
                     </div>
                     <Badge variant="primary" size="sm" className="mb-2">#2</Badge>
-                    <p className="text-sm font-mono text-gray-300">
-                      {truncateAddress(leaderboard[1].address)}
-                    </p>
+                    <AddressLink 
+                      address={leaderboard[1].address}
+                      truncate
+                      className="text-sm text-gray-300 hover:text-primary-300"
+                    />
                     <p className="text-2xl font-bold text-white mt-1">
                       {Number(leaderboard[1].wins)} wins
                     </p>
@@ -213,9 +216,11 @@ export default function LeaderboardPage() {
                       <Crown className="w-16 h-16 text-white" />
                     </div>
                     <Badge variant="gold" size="md" className="mb-2">#1 TOP VOICE</Badge>
-                    <p className="text-sm font-mono text-gold-300">
-                      {truncateAddress(leaderboard[0].address)}
-                    </p>
+                    <AddressLink 
+                      address={leaderboard[0].address}
+                      truncate
+                      className="text-sm text-gold-300 hover:text-gold-200"
+                    />
                     <p className="text-3xl font-bold gradient-text mt-1">
                       {Number(leaderboard[0].wins)} wins
                     </p>
@@ -233,9 +238,11 @@ export default function LeaderboardPage() {
                       <Medal className="w-12 h-12 text-white" />
                     </div>
                     <Badge variant="secondary" size="sm" className="mb-2">#3</Badge>
-                    <p className="text-sm font-mono text-gray-300">
-                      {truncateAddress(leaderboard[2].address)}
-                    </p>
+                    <AddressLink 
+                      address={leaderboard[2].address}
+                      truncate
+                      className="text-sm text-gray-300 hover:text-primary-300"
+                    />
                     <p className="text-2xl font-bold text-white mt-1">
                       {Number(leaderboard[2].wins)} wins
                     </p>
@@ -316,13 +323,24 @@ export default function LeaderboardPage() {
                             {/* Address */}
                             <div className="flex-1">
                               <div className="flex items-center space-x-2">
-                                <p className={cn(
-                                  'font-mono text-sm md:text-base',
+                                <div className={cn(
+                                  'text-sm md:text-base',
                                   isUser ? 'text-primary-300 font-semibold' : 'text-white'
                                 )}>
-                                  <span className="hidden md:inline">{entry.address}</span>
-                                  <span className="md:hidden">{truncateAddress(entry.address)}</span>
-                                </p>
+                                  <span className="hidden md:inline">
+                                    <AddressLink 
+                                      address={entry.address}
+                                      className={isUser ? 'text-primary-300 font-semibold' : 'text-white'}
+                                    />
+                                  </span>
+                                  <span className="md:hidden">
+                                    <AddressLink 
+                                      address={entry.address}
+                                      truncate
+                                      className={isUser ? 'text-primary-300 font-semibold' : 'text-white'}
+                                    />
+                                  </span>
+                                </div>
                                 {isUser && (
                                   <Badge variant="primary" size="sm">You</Badge>
                                 )}

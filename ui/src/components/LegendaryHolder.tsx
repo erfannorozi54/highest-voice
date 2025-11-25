@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Crown, Sparkles, TrendingUp, Trophy, Zap, Award, MessageSquare } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
+import { AddressLink } from '@/components/AddressLink';
 import { formatETH, truncateAddress } from '@/lib/utils';
 import { useWinnerNFT } from '@/hooks/useHighestVoice';
 
@@ -83,9 +84,16 @@ export function LegendaryHolder({ tokenId, holder, auctionId, tipAmount }: Legen
                   </div>
                   <div>
                     <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Most Tipped Voice Owner</p>
-                    <p className="text-xl font-bold bg-gradient-to-r from-gold-300 to-gold-500 bg-clip-text text-transparent">
-                      {truncateAddress(holder, 6, 4)}
-                    </p>
+                    <div className="text-xl font-bold">
+                      <AddressLink 
+                        address={holder}
+                        truncate
+                        truncateStart={6}
+                        truncateEnd={4}
+                        showIcon
+                        className="bg-gradient-to-r from-gold-300 to-gold-500 bg-clip-text text-transparent hover:from-gold-200 hover:to-gold-400"
+                      />
+                    </div>
                   </div>
                 </div>
                 

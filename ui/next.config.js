@@ -1,11 +1,21 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
   images: {
-    domains: ['ipfs.io', 'gateway.pinata.cloud'],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'ipfs.io',
+      },
+      {
+        protocol: 'https',
+        hostname: 'gateway.pinata.cloud',
+      },
+    ],
     unoptimized: true,
   },
+  serverExternalPackages: ['better-sqlite3'],
+  turbopack: {},
   webpack: (config, { isServer }) => {
     config.resolve.fallback = {
       fs: false,
@@ -16,12 +26,16 @@ const nextConfig = {
       'react-native': false,
     };
 
-    // Suppress specific warnings
+    // Suppress specific warnings and errors
     config.ignoreWarnings = [
       { module: /node_modules\/@metamask\/sdk/ },
       { message: /Can't resolve 'busboy'/ },
       { message: /Can't resolve '@react-native-async-storage\/async-storage'/ },
       { message: /Caching failed for pack/ },
+      { message: /Module not found.*test\.js/ },
+      { message: /Can't resolve 'tap'/ },
+      { message: /Can't resolve 'tape'/ },
+      { message: /Can't resolve 'why-is-node-running'/ },
     ];
 
     return config;

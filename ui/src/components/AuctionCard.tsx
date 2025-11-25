@@ -40,7 +40,7 @@ const AuctionCard: React.FC<AuctionCardProps> = ({
   // Calculate real-time remaining seconds
   const getRemainingTime = () => {
     const targetEnd = auctionInfo.phase === 'commit' ? auctionInfo.commitEnd : auctionInfo.revealEnd;
-    const remaining = Number(targetEnd) - currentTime;
+    const remaining = Number(targetEnd || BigInt(0)) - currentTime;
     return Math.max(0, remaining);
   };
 
@@ -102,7 +102,7 @@ const AuctionCard: React.FC<AuctionCardProps> = ({
             <div>
               <NoSSR fallback={<h2 className="text-2xl font-bold">Loading...</h2>}>
                 <h2 className="text-2xl font-bold">
-                  {auctionInfo ? `Auction #${auctionInfo.id?.toString() || '--'}` : 'Loading...'}
+                  {auctionInfo ? `Auction #${auctionInfo.id ? auctionInfo.id.toString() : '--'}` : 'Loading...'}
                 </h2>
               </NoSSR>
               <Badge variant={phaseInfo.color} className="mt-1">
@@ -130,6 +130,7 @@ const AuctionCard: React.FC<AuctionCardProps> = ({
           </div>
         </div>
 
+        <>
         {/* Auction Stats */}
         <div className="grid grid-cols-2 gap-4">
           <motion.div
@@ -141,7 +142,7 @@ const AuctionCard: React.FC<AuctionCardProps> = ({
               <span className="text-sm text-gray-400">Min. Collateral</span>
             </div>
             <p className="text-lg font-bold text-white">
-              {formatETH(auctionInfo.minimumCollateral)} ETH
+              {formatETH(auctionInfo.minimumCollateral || BigInt(0))} ETH
             </p>
           </motion.div>
 
@@ -184,7 +185,7 @@ const AuctionCard: React.FC<AuctionCardProps> = ({
               
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2 text-sm text-gray-400">
-                  <span>Tips: {formatETH(auctionInfo.lastWinner.tipsReceived)} ETH</span>
+                  <span>Tips: {formatETH(auctionInfo.lastWinner.tipsReceived || BigInt(0))} ETH</span>
                 </div>
                 
                 {auctionInfo.lastWinner.voiceCid && (
@@ -246,6 +247,7 @@ const AuctionCard: React.FC<AuctionCardProps> = ({
             />
           </div>
         </div>
+        </>
       </CardContent>
     </Card>
   );

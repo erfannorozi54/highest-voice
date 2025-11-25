@@ -19,7 +19,7 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ className }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const { isConnected } = useAccount();
+  const { isConnected, address } = useAccount();
   const chainId = useChainId();
   const pathname = usePathname();
 
@@ -33,8 +33,16 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
     { name: 'Auction', href: '/', icon: Zap },
     { name: 'Leaderboard', href: '/leaderboard', icon: Trophy },
     { name: 'NFTs', href: '/nft', icon: Users },
-    { name: 'Portfolio', href: '/portfolio', icon: Wallet },
   ];
+
+  // Profile navigation item - only active when wallet is connected
+  // Use mounted to prevent hydration mismatch
+  const profileNavItem = {
+    name: 'Profile',
+    href: mounted && isConnected && address ? `/profile/${address}` : '#',
+    icon: Wallet,
+    disabled: !mounted || !isConnected,
+  };
 
   // Check if a nav item is active
   const isActive = (href: string) => {
@@ -70,7 +78,7 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
                   width={40}
                   height={40}
                   className="object-contain"
-                  priority
+                  style={{ height: "auto" }}
                 />
               </div>
             </div>
@@ -113,6 +121,43 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
                 </motion.a>
               );
             })}
+            
+            {/* Profile Navigation - Disabled when not connected */}
+            {(() => {
+              const active = mounted && isActive(profileNavItem.href);
+              return (
+                <motion.a
+                  key={profileNavItem.name}
+                  href={profileNavItem.href}
+                  whileHover={!profileNavItem.disabled ? { scale: 1.05 } : {}}
+                  whileTap={!profileNavItem.disabled ? { scale: 0.95 } : {}}
+                  onClick={(e) => {
+                    if (profileNavItem.disabled) {
+                      e.preventDefault();
+                    }
+                  }}
+                  className={cn(
+                    "flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200 relative",
+                    profileNavItem.disabled
+                      ? "text-gray-600 cursor-not-allowed opacity-50"
+                      : active
+                      ? "text-white bg-primary-500/20 border border-primary-500/30"
+                      : "text-gray-300 hover:text-white hover:bg-white/5"
+                  )}
+                  title={mounted && profileNavItem.disabled ? "Connect wallet to view profile" : ""}
+                >
+                  <profileNavItem.icon className={cn("w-4 h-4", active && !profileNavItem.disabled && "text-primary-400")} />
+                  <span className="font-medium">{profileNavItem.name}</span>
+                  {active && !profileNavItem.disabled && (
+                    <motion.div
+                      layoutId="activeIndicator"
+                      className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary-400 to-secondary-400"
+                      transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                    />
+                  )}
+                </motion.a>
+              );
+            })()}
           </nav>
 
           {/* Network Badge & Connect Button */}
@@ -430,6 +475,38 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
                   </a>
                 );
               })}
+              
+              {/* Profile Link - Mobile */}
+              {(() => {
+                const active = mounted && isActive(profileNavItem.href);
+                return (
+                  <a
+                    key={profileNavItem.name}
+                    href={profileNavItem.href}
+                    onClick={(e) => {
+                      if (profileNavItem.disabled) {
+                        e.preventDefault();
+                      } else {
+                        setIsMobileMenuOpen(false);
+                      }
+                    }}
+                    className={cn(
+                      "flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200",
+                      profileNavItem.disabled
+                        ? "text-gray-600 cursor-not-allowed opacity-50"
+                        : active
+                        ? "text-white bg-primary-500/20 border border-primary-500/30"
+                        : "text-gray-300 hover:text-white hover:bg-white/5"
+                    )}
+                  >
+                    <profileNavItem.icon className={cn("w-5 h-5", active && !profileNavItem.disabled && "text-primary-400")} />
+                    <span className="font-medium">{profileNavItem.name}</span>
+                    {!profileNavItem.disabled && active && (
+                      <span className="ml-auto w-2 h-2 bg-primary-400 rounded-full" />
+                    )}
+                  </a>
+                );
+              })()}
             </div>
           </motion.nav>
         )}

@@ -44,7 +44,7 @@ export default function NFTPage() {
   }, []);
 
   // Get user's NFT balance
-  const { data: balance } = useReadContract({
+  const { data: balance, isLoading: isBalanceLoading } = useReadContract({
     address: contractAddress ?? undefined,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'balanceOf',
@@ -53,14 +53,14 @@ export default function NFTPage() {
   });
 
   // Get legendary token info
-  const { data: legendaryInfo } = useReadContract({
+  const { data: legendaryInfo, isLoading: isLegendaryLoading } = useReadContract({
     address: contractAddress ?? undefined,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'getLegendaryTokenInfo',
   });
 
   // Get next token ID to know total supply
-  const { data: nextTokenId } = useReadContract({
+  const { data: nextTokenId, isLoading: isSupplyLoading } = useReadContract({
     address: contractAddress ?? undefined,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'nextTokenId',
@@ -122,6 +122,7 @@ export default function NFTPage() {
   const totalSupply = nextTokenId ? Number(nextTokenId) - 1 : 0;
   const userBalance = balance ? Number(balance) : 0;
   const hasLegendary = legendaryInfo && legendaryInfo[1] === address;
+  const isDataLoading = isBalanceLoading || isLegendaryLoading || isSupplyLoading;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
@@ -261,6 +262,7 @@ export default function NFTPage() {
           filterType={filterType}
           searchQuery={searchQuery}
           legendaryTokenId={legendaryInfo ? Number(legendaryInfo[0]) : 0}
+          isLoading={isDataLoading}
         />
       </main>
 
@@ -352,7 +354,8 @@ function NFTGrid({
   userAddress, 
   filterType, 
   searchQuery,
-  legendaryTokenId 
+  legendaryTokenId,
+  isLoading
 }: { 
   contractAddress: `0x${string}`; 
   totalSupply: number; 
@@ -360,9 +363,20 @@ function NFTGrid({
   filterType: 'all' | 'mine' | 'legendary';
   searchQuery: string;
   legendaryTokenId: number;
+  isLoading: boolean;
 }) {
   const [visibleCount, setVisibleCount] = useState(12);
 
+  // Show loader while fetching data
+  if (isLoading) {
+    return (
+      <Card variant="neon" className="p-12 text-center">
+        <LogoLoader size="lg" message="Loading NFTs..." />
+      </Card>
+    );
+  }
+
+  // Show "No NFTs" only after loading is complete and there are none
   if (totalSupply === 0) {
     return (
       <Card variant="neon" className="p-12 text-center">
@@ -423,7 +437,7 @@ function NFTCard({
   const router = useRouter();
 
   // Get token owner
-  const { data: owner } = useReadContract({
+  const { data: owner, isLoading: isOwnerLoading } = useReadContract({
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'ownerOf',
@@ -431,15 +445,51 @@ function NFTCard({
   });
 
   // Get token metadata
-  const { data: nftData } = useReadContract({
+  const { data: nftData, isLoading: isDataLoading } = useReadContract({
     address: contractAddress,
     abi: HIGHEST_VOICE_ABI,
     functionName: 'winnerNFTs',
     args: [BigInt(tokenId)],
   });
 
+ 
+  const { data: tokenURI, isLoading: isURILoading } = useReadContract({
+    address: contractAddress,
+    abi: HIGHEST_VOICE_ABI,
+    functionName: 'tokenURI',
+    args: [BigInt(tokenId)],
+  });
+
+  const isLoading = isOwnerLoading || isDataLoading || isURILoading;
   const isOwner = owner === userAddress;
   const [auctionId, winningBid, text, timestamp, tipsReceived] = nftData || [0n, 0n, '', 0n, 0n];
+
+  // Parse SVG from tokenURI data URI
+  const [svgImage, setSvgImage] = useState<string | null>(null);
+  
+  useEffect(() => {
+    if (tokenURI && typeof tokenURI === 'string') {
+      try {
+        // TokenURI is a data URI: data:application/json;base64,{base64data}
+        const base64Data = tokenURI.split(',')[1];
+        const jsonData = JSON.parse(atob(base64Data));
+        
+        if (jsonData.image) {
+          // Image is also a data URI: data:image/svg+xml;base64,{svgBase64}
+          if (jsonData.image.startsWith('data:image/svg+xml;base64,')) {
+            const svgBase64 = jsonData.image.split(',')[1];
+            const svgString = atob(svgBase64);
+            setSvgImage(svgString);
+          } else {
+            // If it's already plain SVG
+            setSvgImage(jsonData.image);
+          }
+        }
+      } catch (error) {
+        console.error('Error parsing tokenURI:', error);
+      }
+    }
+  }, [tokenURI]);
 
   return (
     <motion.div
@@ -456,9 +506,9 @@ function NFTCard({
         )}
         onClick={() => router.push(`/nft/${tokenId}`)}
       >
-        {/* Token Image Placeholder */}
+        {/* Token Image */}
         <div className={cn(
-          "w-full aspect-square rounded-lg mb-4 flex items-center justify-center relative overflow-hidden",
+          "w-full aspect-square rounded-lg mb-4 relative overflow-hidden",
           isLegendary 
             ? "bg-gradient-to-br from-yellow-500/20 to-orange-500/20"
             : "bg-gradient-to-br from-primary-500/20 to-secondary-500/20"
@@ -471,17 +521,36 @@ function NFTCard({
               </Badge>
             </div>
           )}
-          <Trophy className={cn(
-            "w-20 h-20",
-            isLegendary ? "text-yellow-400" : "text-primary-400"
-          )} />
+          
+          {isLoading ? (
+            <div className="w-full h-full flex items-center justify-center">
+              <Trophy className={cn(
+                "w-20 h-20 animate-pulse",
+                isLegendary ? "text-yellow-400" : "text-primary-400"
+              )} />
+            </div>
+          ) : svgImage ? (
+            <div 
+              className="w-full h-full flex items-center justify-center"
+              dangerouslySetInnerHTML={{ 
+                __html: svgImage.replace('<svg', '<svg style="width: 100%; height: 100%; object-fit: contain;"')
+              }}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <Trophy className={cn(
+                "w-20 h-20",
+                isLegendary ? "text-yellow-400" : "text-primary-400"
+              )} />
+            </div>
+          )}
         </div>
 
         {/* Token Info */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-bold text-white">Winner #{tokenId}</h3>
-            {isOwner && (
+            {!isLoading && isOwner && (
               <Badge variant="success" size="sm">
                 <Award className="w-3 h-3 mr-1" />
                 Owned
@@ -489,39 +558,60 @@ function NFTCard({
             )}
           </div>
 
-          {auctionId !== undefined && (
+          {isLoading ? (
             <>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-400">Auction</span>
-                <span className="text-white font-semibold">#{Number(auctionId)}</span>
-              </div>
-
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-400">Winning Bid</span>
-                <span className="text-primary-400 font-semibold">
-                  {winningBid ? formatETH(winningBid) : '0'} ETH
-                </span>
-              </div>
-
-              {tipsReceived && tipsReceived > 0n && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-400 flex items-center">
-                    <Heart className="w-3 h-3 mr-1" />
-                    Tips
-                  </span>
-                  <span className="text-green-400 font-semibold">
-                    {tipsReceived ? formatETH(tipsReceived) : '0'} ETH
-                  </span>
+              {/* Loading Skeleton */}
+              <div className="space-y-2 animate-pulse">
+                <div className="flex items-center justify-between">
+                  <div className="h-4 w-16 bg-gray-700 rounded"></div>
+                  <div className="h-4 w-12 bg-gray-700 rounded"></div>
                 </div>
+                <div className="flex items-center justify-between">
+                  <div className="h-4 w-20 bg-gray-700 rounded"></div>
+                  <div className="h-4 w-16 bg-gray-700 rounded"></div>
+                </div>
+                <div className="pt-2 border-t border-gray-700">
+                  <div className="h-3 w-24 bg-gray-700 rounded"></div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {auctionId !== undefined && (
+                <>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-400">Auction</span>
+                    <span className="text-white font-semibold">#{Number(auctionId)}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-400">Winning Bid</span>
+                    <span className="text-primary-400 font-semibold">
+                      {winningBid ? formatETH(winningBid) : '0'} ETH
+                    </span>
+                  </div>
+
+                  {tipsReceived && tipsReceived > 0n && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-400 flex items-center">
+                        <Heart className="w-3 h-3 mr-1" />
+                        Tips
+                      </span>
+                      <span className="text-green-400 font-semibold">
+                        {tipsReceived ? formatETH(tipsReceived) : '0'} ETH
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
+
+              <div className="pt-2 border-t border-gray-700">
+                <p className="text-xs text-gray-500 truncate">
+                  {owner ? truncateAddress(owner as `0x${string}`) : 'Loading...'}
+                </p>
+              </div>
             </>
           )}
-
-          <div className="pt-2 border-t border-gray-700">
-            <p className="text-xs text-gray-500 truncate">
-              {owner ? truncateAddress(owner as `0x${string}`) : 'Loading...'}
-            </p>
-          </div>
         </div>
       </Card>
     </motion.div>

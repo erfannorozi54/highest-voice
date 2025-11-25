@@ -142,3 +142,5 @@ cache/*
 deployments/*
 ui/public/fonts/*
 highest-voice-deploy.tar.gz
+ui/highest-voice.db*
+.windsurf/**

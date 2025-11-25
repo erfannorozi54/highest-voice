@@ -13,30 +13,27 @@ export function MissionCTA() {
   const [open, setOpen] = useState(false);
   const [lang, setLang] = useState<"en" | "fa">("en");
 
+  const [hasMounted, setHasMounted] = useState(false);
+
   useEffect(() => {
+    setHasMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hasMounted) return;
+
     try {
       const key = "hv_seen_mission_v1";
-      if (typeof window === "undefined") return;
       const seen = window.localStorage.getItem(key);
 
-      const onLoad = () => {
-        if (!seen) {
-          setOpen(true);
-          window.localStorage.setItem(key, "1");
-        }
-      };
-
-      if (document.readyState === "complete") {
-        onLoad();
-      } else {
-        window.addEventListener("load", onLoad);
+      if (!seen) {
+        setOpen(true);
+        window.localStorage.setItem(key, "1");
       }
-
-      return () => {
-        window.removeEventListener("load", onLoad);
-      };
-    } catch {}
-  }, []);
+    } catch (error) {
+      console.error("Error accessing localStorage:", error);
+    }
+  }, [hasMounted]);
 
   return (
     <>

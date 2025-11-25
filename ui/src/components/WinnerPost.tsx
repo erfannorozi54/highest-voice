@@ -6,6 +6,7 @@ import { Share2, Gift, Volume2, Play, Pause, Mic } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
+import { AddressLink } from './AddressLink';
 import { formatETH, formatRelativeTime, truncateAddress } from '@/lib/utils';
 import { Post } from '@/types';
 import { cn } from '@/lib/utils';
@@ -128,9 +129,12 @@ export function WinnerPost({
               {/* User Info */}
               <div className="flex-1">
                 <div className="flex items-center space-x-2 flex-wrap">
-                  <h3 className="font-semibold text-white">
-                    {truncateAddress(post.owner)}
-                  </h3>
+                  <AddressLink 
+                    address={post.owner}
+                    truncate
+                    showIcon
+                    className="font-semibold text-white hover:text-primary-300"
+                  />
                   <Badge variant="primary" size="sm">
                     Auction #{auctionId.toString()}
                   </Badge>
