@@ -80,17 +80,33 @@ export async function syncPosts(chainId: number) {
 
     if (logs.length > 0) {
       const insertStmt = db.prepare(`
-        INSERT OR IGNORE INTO posts (chainId, auctionId, winner, winningBid, text, imageCid, voiceCid, blockNumber, transactionHash, tipsReceived)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO posts (chainId, auctionId, winner, winningBid, text, imageCid, voiceCid, blockNumber, transactionHash, tipsReceived, blockTimestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       let insertedCount = 0;
+      
+      // Fetch block timestamps for all unique blocks
+      const uniqueBlocks = [...new Set(logs.map(log => log.blockNumber))];
+      const blockTimestamps: Map<bigint, number> = new Map();
+      
+      for (const blockNum of uniqueBlocks) {
+        try {
+          const block = await client.getBlock({ blockNumber: blockNum });
+          blockTimestamps.set(blockNum, Number(block.timestamp));
+        } catch (e) {
+          console.warn(`Could not fetch timestamp for block ${blockNum}`);
+          blockTimestamps.set(blockNum, Math.floor(Date.now() / 1000));
+        }
+      }
+
       const transaction = db.transaction((events) => {
         for (const log of events) {
           const { winner, auctionId, amount, text, imageCid, voiceCid } = log.args;
           // Skip zero address (auctions with no winner)
           if (winner && auctionId !== undefined && winner !== '0x0000000000000000000000000000000000000000') {
-             insertStmt.run(
+            const timestamp = blockTimestamps.get(log.blockNumber) || Math.floor(Date.now() / 1000);
+            insertStmt.run(
               chainId,
               Number(auctionId),
               getAddress(winner),
@@ -100,7 +116,8 @@ export async function syncPosts(chainId: number) {
               voiceCid || '',
               Number(log.blockNumber),
               log.transactionHash,
-              '0' // Initial tips received
+              '0', // Initial tips received
+              timestamp // Block timestamp
             );
             insertedCount++;
           }
@@ -244,12 +261,22 @@ export function detectMissingAuctions(chainId: number): number[] {
 
 /**
  * Get the highest auction ID in database for a specific network
+ * Considers both posts (with winners) and empty_auctions (no winners)
  */
 export function getLastSyncedAuction(chainId: number): number {
   try {
-    const result = db.prepare('SELECT MAX(auctionId) as maxId FROM posts WHERE chainId = ?')
+    // Get max from posts (auctions with winners)
+    const postsResult = db.prepare('SELECT MAX(auctionId) as maxId FROM posts WHERE chainId = ?')
       .get(chainId) as { maxId: number | null };
-    return result?.maxId || 0;
+    
+    // Get max from empty_auctions (auctions without winners)
+    const emptyResult = db.prepare('SELECT MAX(auctionId) as maxId FROM empty_auctions WHERE chainId = ?')
+      .get(chainId) as { maxId: number | null };
+    
+    const postsMax = postsResult?.maxId || 0;
+    const emptyMax = emptyResult?.maxId || 0;
+    
+    return Math.max(postsMax, emptyMax);
   } catch (error) {
     console.error('Error getting last auction:', error);
     return 0;
@@ -259,6 +286,9 @@ export function getLastSyncedAuction(chainId: number): number {
 /**
  * Fetch a specific auction result from blockchain
  * Returns: winner data, 'no_winner' string, or null (not settled/doesn't exist)
+ * 
+ * Note: getAuctionResult returns (settled, winner, winningBid, secondBid)
+ * Post data (text, imageCid, voiceCid) is only available from NewWinner events
  */
 export async function fetchAuctionById(chainId: number, auctionId: number): Promise<any | 'no_winner' | null> {
   const CONTRACT_ADDRESS = getContractAddress(chainId);
@@ -270,30 +300,65 @@ export async function fetchAuctionById(chainId: number, auctionId: number): Prom
 
   try {
     const client = createNetworkClient(chainId);
+    
+    // getAuctionResult returns: (settled: bool, winner: address, winningBid: uint256, secondBid: uint256)
     const result = await client.readContract({
       address: CONTRACT_ADDRESS,
       abi: HIGHEST_VOICE_ABI,
       functionName: 'getAuctionResult',
       args: [BigInt(auctionId)],
-    }) as any;
+    }) as [boolean, `0x${string}`, bigint, bigint];
 
-    // Check if auction exists but has no winner (zero address)
-    if (result && result[0] === '0x0000000000000000000000000000000000000000') {
+    const [settled, winner, winningBid] = result;
+
+    // Check if auction is not settled yet
+    if (!settled) {
+      return null; // Auction not settled
+    }
+
+    // Check if auction settled but has no winner (zero address)
+    if (winner === '0x0000000000000000000000000000000000000000') {
       return 'no_winner'; // Auction settled but no winner
     }
 
-    // Check if auction doesn't exist or not settled yet
-    if (!result || !result[0]) {
-      return null; // Auction not settled or doesn't exist
+    // Auction has a winner - try to get post data from NewWinner event
+    // We need to search for the NewWinner event for this auction
+    let text = '';
+    let imageCid = '';
+    let voiceCid = '';
+    
+    try {
+      // Search for NewWinner event - filter by winner address (indexed) then find matching auctionId
+      const logs = await client.getContractEvents({
+        address: CONTRACT_ADDRESS,
+        abi: HIGHEST_VOICE_ABI,
+        eventName: 'NewWinner',
+        args: {
+          winner: winner, // winner is indexed, so we can filter by it
+        },
+        fromBlock: 0n,
+        toBlock: 'latest',
+      });
+      
+      // Find the event for this specific auction
+      const matchingLog = logs.find(log => log.args.auctionId === BigInt(auctionId));
+      if (matchingLog) {
+        const eventArgs = matchingLog.args;
+        text = eventArgs.text || '';
+        imageCid = eventArgs.imageCid || '';
+        voiceCid = eventArgs.voiceCid || '';
+      }
+    } catch (eventError) {
+      console.warn(`Could not fetch NewWinner event for auction ${auctionId}:`, eventError);
+      // Continue without post data - we still have winner info
     }
 
-    // Auction has a winner
     return {
-      winner: getAddress(result[0]),
-      winningBid: result[1]?.toString() || '0',
-      text: result[2] || '',
-      imageCid: result[3] || '',
-      voiceCid: result[4] || '',
+      winner: getAddress(winner),
+      winningBid: winningBid?.toString() || '0',
+      text,
+      imageCid,
+      voiceCid,
     };
   } catch (error) {
     console.error(`Error fetching auction ${auctionId}:`, error);
@@ -315,8 +380,8 @@ export async function healMissingAuctions(chainId: number, missingIds: number[])
   let failed = 0;
 
   const insertPostStmt = db.prepare(`
-    INSERT OR REPLACE INTO posts (chainId, auctionId, winner, winningBid, text, imageCid, voiceCid, blockNumber, transactionHash, tipsReceived)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO posts (chainId, auctionId, winner, winningBid, text, imageCid, voiceCid, blockNumber, transactionHash, tipsReceived, blockTimestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertEmptyStmt = db.prepare(`
@@ -335,6 +400,8 @@ export async function healMissingAuctions(chainId: number, missingIds: number[])
         console.log(`○ Auction ${auctionId} has no winner (tracked)`);
       } else if (data) {
         // Auction has a winner - store it
+        // Use current time as timestamp since we don't have block info
+        const currentTimestamp = Math.floor(Date.now() / 1000);
         insertPostStmt.run(
           chainId,
           auctionId,
@@ -345,7 +412,8 @@ export async function healMissingAuctions(chainId: number, missingIds: number[])
           data.voiceCid,
           0, // Block number unknown
           '0x0000000000000000000000000000000000000000000000000000000000000000', // TX hash unknown
-          '0' // Initial tips
+          '0', // Initial tips
+          currentTimestamp // Block timestamp (approximation)
         );
         healed++;
         console.log(`✓ Healed auction ${auctionId}`);
@@ -394,36 +462,50 @@ export async function syncWithValidation(chainId: number) {
   const lastSynced = getLastSyncedAuction(chainId);
   console.log(`📊 Last synced auction in DB: ${lastSynced}`);
   
-  // Step 4: Detect gaps
+  // Step 4: Detect gaps in existing range
   const missing = detectMissingAuctions(chainId);
   
   if (missing.length > 0) {
-    console.warn(`⚠️  Found ${missing.length} missing auctions: [${missing.join(', ')}]`);
+    console.warn(`⚠️  Found ${missing.length} missing auctions in range: [${missing.join(', ')}]`);
     
     // Step 5: Heal gaps
     const { healed, noWinner, failed } = await healMissingAuctions(chainId, missing);
-    console.log(`✅ Results: ${healed} healed, ${noWinner} with no winner, ${failed} failed`);
+    console.log(`✅ Gap healing: ${healed} healed, ${noWinner} with no winner, ${failed} failed`);
   } else {
     console.log('✅ No gaps detected - database is complete');
   }
   
-  // Step 6: Check if we're behind
-  if (currentAuctionId > 0 && lastSynced < currentAuctionId - 1) {
-    const behind = currentAuctionId - lastSynced - 1;
-    console.warn(`⚠️  Database is ${behind} auctions behind blockchain`);
-    console.log('💡 Run sync again or check for blockchain reorg');
+  // Step 6: Check for auctions beyond our last synced
+  // Current auction is still in progress, so we check up to currentAuctionId - 1
+  const lastSettledAuction = currentAuctionId > 0 ? currentAuctionId - 1 : 0;
+  
+  if (lastSettledAuction > lastSynced) {
+    // There are settled auctions we haven't synced yet
+    const behindAuctions: number[] = [];
+    for (let i = lastSynced + 1; i <= lastSettledAuction; i++) {
+      behindAuctions.push(i);
+    }
+    
+    console.warn(`⚠️  Database is ${behindAuctions.length} auctions behind blockchain`);
+    console.log(`💡 Attempting to heal auctions ${lastSynced + 1} to ${lastSettledAuction}...`);
+    
+    const { healed, noWinner, failed } = await healMissingAuctions(chainId, behindAuctions);
+    console.log(`✅ Catch-up: ${healed} healed, ${noWinner} with no winner, ${failed} failed`);
   } else {
     console.log('✅ Database is up to date with blockchain');
   }
   
   console.log(`🎉 [Chain ${chainId}] Sync complete!\n`);
   
+  // Re-check lastSynced after healing
+  const finalLastSynced = getLastSyncedAuction(chainId);
+  
   return {
     chainId,
     currentAuctionId,
-    lastSynced,
+    lastSynced: finalLastSynced,
     missing: missing.length,
-    upToDate: currentAuctionId === 0 || lastSynced >= currentAuctionId - 1,
+    upToDate: currentAuctionId === 0 || finalLastSynced >= currentAuctionId - 1,
   };
 }
 

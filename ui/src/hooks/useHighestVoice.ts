@@ -611,7 +611,8 @@ export function useWinners() {
               tipsReceived: BigInt(post.tipsReceived || '0'),
             },
             auctionId: BigInt(post.auctionId),
-            timestamp: BigInt(post.blockNumber), // Using blockNumber as timestamp approximation
+            // Use blockTimestamp if available, otherwise fall back to createdAt
+            timestamp: BigInt(post.blockTimestamp || post.createdAt || Math.floor(Date.now() / 1000)),
           }));
         
         // Update cache

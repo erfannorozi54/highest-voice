@@ -76,6 +76,13 @@ try {
   // Column already exists, ignore
 }
 
+// Add blockTimestamp column if it doesn't exist (migration for existing DBs)
+try {
+  db.exec('ALTER TABLE posts ADD COLUMN blockTimestamp INTEGER');
+} catch (e) {
+  // Column already exists, ignore
+}
+
 // Ensure empty_auctions table exists (migration)
 try {
   db.exec(`

@@ -34,6 +34,7 @@ interface Post {
   transactionHash: string;
   tipsReceived: string;
   createdAt: number;
+  blockTimestamp?: number;
 }
 
 export default function ProfilePage() {
@@ -539,7 +540,7 @@ export default function ProfilePage() {
                     voiceCid={post.voiceCid}
                     tipsReceived={BigInt(post.tipsReceived || '0')}
                     auctionId={BigInt(post.auctionId)}
-                    timestamp={BigInt(post.createdAt)}
+                    timestamp={BigInt(post.blockTimestamp || post.createdAt)}
                     variant="default"
                     showActions={false}
                   />
