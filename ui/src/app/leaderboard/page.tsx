@@ -113,6 +113,7 @@ export default function LeaderboardPage() {
               holder={legendaryData.holder}
               auctionId={legendaryData.auctionId}
               tipAmount={legendaryData.tipAmount}
+              onShare={() => console.log('Share legendary:', legendaryData.auctionId)}
             />
           )}
 

@@ -1,22 +1,58 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Crown, Sparkles, TrendingUp, Trophy, Zap, Award, MessageSquare } from 'lucide-react';
+import { Crown, Sparkles } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
-import { AddressLink } from '@/components/AddressLink';
-import { formatETH, truncateAddress } from '@/lib/utils';
+import { PostCard } from '@/components/PostCard';
 import { useWinnerNFT } from '@/hooks/useHighestVoice';
+import { useChainId } from 'wagmi';
 
 interface LegendaryHolderProps {
   tokenId: bigint;
   holder: `0x${string}`;
   auctionId: bigint;
   tipAmount: bigint;
+  onTip?: () => void;
+  onShare?: () => void;
 }
 
-export function LegendaryHolder({ tokenId, holder, auctionId, tipAmount }: LegendaryHolderProps) {
-  const { nft, isLoading: nftLoading } = useWinnerNFT(tokenId);
+interface PostData {
+  text: string;
+  imageCid?: string;
+  voiceCid?: string;
+}
+
+export function LegendaryHolder({ tokenId, holder, auctionId, tipAmount, onTip, onShare }: LegendaryHolderProps) {
+  const { nft } = useWinnerNFT(tokenId);
+  const chainId = useChainId();
+  const [postData, setPostData] = useState<PostData | null>(null);
+
+  // Fetch full post data from API to get imageCid and voiceCid
+  useEffect(() => {
+    const fetchPostData = async () => {
+      try {
+        const response = await fetch(`/api/winners?chainId=${chainId}`);
+        if (response.ok) {
+          const data = await response.json();
+          const post = data.posts?.find((p: any) => p.auctionId === Number(auctionId));
+          if (post) {
+            setPostData({
+              text: post.text || nft?.text || '',
+              imageCid: post.imageCid || '',
+              voiceCid: post.voiceCid || '',
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching post data:', error);
+      }
+    };
+
+    if (auctionId && chainId) {
+      fetchPostData();
+    }
+  }, [auctionId, chainId, nft?.text]);
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -73,113 +109,26 @@ export function LegendaryHolder({ tokenId, holder, auctionId, tipAmount }: Legen
             </motion.div>
           </div>
 
-          {/* Main Content */}
-          <div className="space-y-6">
-            {/* Champion Identity Card */}
-            <div className="p-5 rounded-2xl bg-gradient-to-br from-dark-800/80 to-dark-900/80 border-2 border-gold-500/30">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gold-400 to-gold-600 flex items-center justify-center shadow-glow">
-                    <Trophy className="w-6 h-6 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Most Tipped Voice Owner</p>
-                    <div className="text-xl font-bold">
-                      <AddressLink 
-                        address={holder}
-                        truncate
-                        truncateStart={6}
-                        truncateEnd={4}
-                        showIcon
-                        className="bg-gradient-to-r from-gold-300 to-gold-500 bg-clip-text text-transparent hover:from-gold-200 hover:to-gold-400"
-                      />
-                    </div>
-                  </div>
-                </div>
-                
-                <Badge variant="primary" className="bg-gradient-to-r from-gold-500 to-gold-600" glow>
-                  <Award className="w-3 h-3 mr-1" />
-                  #{tokenId.toString()}
-                </Badge>
-              </div>
+          {/* Post Card with legendary variant */}
+          <PostCard
+            owner={holder}
+            text={postData?.text || nft?.text || ''}
+            imageCid={postData?.imageCid}
+            voiceCid={postData?.voiceCid}
+            tipsReceived={tipAmount}
+            auctionId={auctionId}
+            variant="legendary"
+            onTip={onTip}
+            onShare={onShare}
+          />
 
-              {/* Stats Grid */}
-              <div className="grid grid-cols-2 gap-4 mt-4">
-                {/* Tips Received */}
-                <div className="p-4 rounded-xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30">
-                  <div className="flex items-center space-x-2 mb-2">
-                    <TrendingUp className="w-4 h-4 text-green-400" />
-                    <span className="text-xs text-gray-400 uppercase tracking-wider">Tips Received</span>
-                  </div>
-                  <p className="text-2xl font-black bg-gradient-to-r from-green-300 to-emerald-400 bg-clip-text text-transparent">
-                    {formatETH(tipAmount)} ETH
-                  </p>
-                </div>
-
-                {/* Winning Auction */}
-                <div className="p-4 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30">
-                  <div className="flex items-center space-x-2 mb-2">
-                    <Zap className="w-4 h-4 text-purple-400" />
-                    <span className="text-xs text-gray-400 uppercase tracking-wider">Winning Auction</span>
-                  </div>
-                  <p className="text-2xl font-black bg-gradient-to-r from-purple-300 to-pink-400 bg-clip-text text-transparent">
-                    #{auctionId.toString()}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Post Content */}
-            {nft && nft.text && (
-              <div className="p-5 rounded-2xl bg-gradient-to-br from-purple-500/10 to-pink-500/10 border border-purple-500/30">
-                <div className="flex items-start space-x-3 mb-3">
-                  <div className="p-2 rounded-lg bg-purple-500/20 flex-shrink-0">
-                    <MessageSquare className="w-5 h-5 text-purple-400" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-white mb-1">Their Voice</h4>
-                    <p className="text-xs text-gray-400">The message that earned the most tips</p>
-                  </div>
-                </div>
-                <div className="p-4 rounded-lg bg-dark-900/50 border border-white/10">
-                  <p className="text-white leading-relaxed text-sm">
-                    {nft.text}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Achievement Banner */}
-            <motion.div
-              initial={{ scale: 0.95 }}
-              animate={{ scale: 1 }}
-              transition={{ duration: 0.5 }}
-              className="p-4 rounded-xl bg-gradient-to-r from-gold-500/10 via-pink-500/10 to-purple-500/10 border border-gold-500/20"
-            >
-              <div className="flex items-start space-x-3">
-                <div className="p-2 rounded-lg bg-gold-500/20">
-                  <Sparkles className="w-5 h-5 text-gold-400" />
-                </div>
-                <div className="flex-1">
-                  <h4 className="text-sm font-bold text-white mb-1">
-                    🏆 The Most Beloved Voice
-                  </h4>
-                  <p className="text-xs text-gray-400 leading-relaxed">
-                    This soulbound NFT represents the most tipped voice in HighestVoice history.
-                    The Most Beloved Voice token automatically transfers to new winners who receive more tips.
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-
-            {/* Non-Transferable Badge */}
-            <div className="flex items-center justify-center space-x-2 p-3 rounded-lg bg-dark-800/50 border border-pink-500/30">
-              <div className="w-2 h-2 rounded-full bg-pink-500 animate-pulse" />
-              <span className="text-xs font-bold text-pink-400 uppercase tracking-wider">
-                Soulbound - Non-Transferable
-              </span>
-              <div className="w-2 h-2 rounded-full bg-pink-500 animate-pulse" />
-            </div>
+          {/* Non-Transferable Badge */}
+          <div className="flex items-center justify-center space-x-2 p-3 rounded-lg bg-dark-800/50 border border-pink-500/30">
+            <div className="w-2 h-2 rounded-full bg-pink-500 animate-pulse" />
+            <span className="text-xs font-bold text-pink-400 uppercase tracking-wider">
+              Soulbound - Non-Transferable
+            </span>
+            <div className="w-2 h-2 rounded-full bg-pink-500 animate-pulse" />
           </div>
         </div>
 

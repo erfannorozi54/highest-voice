@@ -10,7 +10,6 @@ import { Header } from '@/components/Header';
 import { MobileHeader } from '@/components/MobileHeader';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { WinnersFeed } from '@/components/WinnersFeed';
-import { BidModal } from '@/components/BidModal';
 import { LegendaryHolder } from '@/components/LegendaryHolder';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -38,9 +37,6 @@ export default function HomePage() {
   const { revealed, refetch: refetchBidDetails } = useUserBidDetails(auctionInfo?.id, address);
   const { currentWinner, previousWinners, hasWinners } = useWinners();
 
-  const [bidModalOpen, setBidModalOpen] = useState(false);
-  const [bidModalMode] = useState<'commit' | 'reveal'>('commit');
-  const [existingCommit, setExistingCommit] = useState<any>(null);
   const [activeTab, setActiveTab] = useState('home');
   const [currentTime, setCurrentTime] = useState(Math.floor(Date.now() / 1000));
   const hasRefreshed = useRef(false);
@@ -123,30 +119,6 @@ export default function HomePage() {
       case 'settlement': return 'New Auction';
       default: return 'New Auction';
     }
-  };
-
-  // Load commit data from localStorage
-  useEffect(() => {
-    if (!address || !auctionInfo) return;
-    
-    const storageKey = `commit_${auctionInfo.id}_${address}`;
-    const savedData = localStorage.getItem(storageKey);
-    
-    if (savedData) {
-      try {
-        const commitData = JSON.parse(savedData);
-        setExistingCommit(commitData);
-        console.log('Loaded commit data from localStorage:', commitData);
-      } catch (error) {
-        console.error('Failed to parse commit data:', error);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, auctionInfo?.id]);
-
-  const handleModalClose = () => {
-    setBidModalOpen(false);
-    refetchCommitStatus();
   };
 
   const handleCommitBid = () => {
@@ -356,6 +328,8 @@ export default function HomePage() {
                 holder={legendaryData.holder}
                 auctionId={legendaryData.auctionId}
                 tipAmount={legendaryData.tipAmount}
+                onTip={() => handleTipWinner(legendaryData.auctionId)}
+                onShare={() => console.log('Share legendary:', legendaryData.auctionId)}
               />
             )}
 
@@ -686,6 +660,8 @@ export default function HomePage() {
                   holder={legendaryData.holder}
                   auctionId={legendaryData.auctionId}
                   tipAmount={legendaryData.tipAmount}
+                  onTip={() => handleTipWinner(legendaryData.auctionId)}
+                  onShare={() => console.log('Share legendary:', legendaryData.auctionId)}
                 />
               )}
 
@@ -825,17 +801,6 @@ export default function HomePage() {
             </div>
           </div>
         </div>
-
-        {/* Bid Modal */}
-        {auctionInfo && (
-          <BidModal
-            isOpen={bidModalOpen}
-            onClose={handleModalClose}
-            mode={bidModalMode}
-            auctionInfo={auctionInfo}
-            existingCommit={existingCommit}
-          />
-        )}
 
         {/* Tip Winner Modal */}
         <Modal

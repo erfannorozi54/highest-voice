@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { TrendingUp, Clock, Filter, Loader2 } from 'lucide-react';
 import Image from 'next/image';
-import { WinnerPost } from './WinnerPost';
+import { PostCard } from './PostCard';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
@@ -190,11 +190,15 @@ export function WinnersFeed({
           </div>
           
           {/* Voice Post with Audio Focus */}
-          <WinnerPost
-            post={currentWinner.post}
+          <PostCard
+            owner={currentWinner.post.owner}
+            text={currentWinner.post.text}
+            imageCid={currentWinner.post.imageCid}
+            voiceCid={currentWinner.post.voiceCid}
+            tipsReceived={currentWinner.post.tipsReceived}
             auctionId={currentWinner.auctionId}
             timestamp={currentWinner.timestamp}
-            isCurrentWinner={true}
+            variant="champion"
             onTip={() => onTipWinner?.(currentWinner.auctionId)}
             onShare={() => onSharePost?.(currentWinner.auctionId)}
           />
@@ -245,10 +249,15 @@ export function WinnersFeed({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: Math.min(index * 0.05, 0.3) }}
               >
-                <WinnerPost
-                  post={winner.post}
+                <PostCard
+                  owner={winner.post.owner}
+                  text={winner.post.text}
+                  imageCid={winner.post.imageCid}
+                  voiceCid={winner.post.voiceCid}
+                  tipsReceived={winner.post.tipsReceived}
                   auctionId={winner.auctionId}
                   timestamp={winner.timestamp}
+                  variant="default"
                   onTip={() => onTipWinner?.(winner.auctionId)}
                   onShare={() => onSharePost?.(winner.auctionId)}
                 />

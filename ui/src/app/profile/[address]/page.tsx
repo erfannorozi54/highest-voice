@@ -10,6 +10,7 @@ import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { PostCard } from '@/components/PostCard';
 import { 
   Trophy, ImageIcon, FileText, Loader2, Zap, Wallet, 
   DollarSign, Lock, Unlock, TrendingUp, Gift, Flame, 
@@ -530,67 +531,18 @@ export default function ProfilePage() {
             ) : posts.length > 0 ? (
               <div className="grid grid-cols-1 gap-6">
                 {posts.map((post) => (
-                  <Card key={post.auctionId} variant="glass" className="p-6 overflow-hidden relative group">
-                    <div className="absolute inset-0 bg-gradient-to-br from-primary-500/5 via-transparent to-secondary-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    
-                    <div className="relative z-10">
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="flex items-center space-x-3">
-                          <span className="px-3 py-1 rounded-full bg-gold-500/10 text-gold-400 text-xs font-bold border border-gold-500/20">
-                            AUCTION #{post.auctionId}
-                          </span>
-                          <span className="text-gray-400 text-sm font-mono">
-                            {new Date(post.createdAt * 1000).toLocaleDateString()}
-                          </span>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xs text-gray-400 uppercase tracking-wide">Winning Bid</p>
-                          <p className="text-primary-400 font-bold">
-                            {formatEther(BigInt(post.winningBid))} ETH
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <p className="text-lg text-gray-100 mb-6 leading-relaxed whitespace-pre-wrap">
-                        {post.text}
-                      </p>
-                      
-                      {post.imageCid && (
-                        <div className="rounded-xl overflow-hidden bg-black/40 border border-white/10 mb-4">
-                          <img 
-                            src={`https://ipfs.io/ipfs/${post.imageCid}`} 
-                            alt={`Auction ${post.auctionId} content`}
-                            className="w-full h-auto max-h-[500px] object-contain mx-auto"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                        </div>
-                      )}
-                      
-                      {post.voiceCid && (
-                        <div className="mt-4 p-3 rounded-lg bg-white/5 border border-white/10">
-                          <p className="text-xs text-gray-400 mb-2 uppercase tracking-wide">Voice Message</p>
-                          <audio controls className="w-full h-8">
-                            <source src={`https://ipfs.io/ipfs/${post.voiceCid}`} />
-                            Your browser does not support the audio element.
-                          </audio>
-                        </div>
-                      )}
-
-                      <div className="mt-4 pt-4 border-t border-white/5 flex justify-between items-center text-xs text-gray-500 font-mono">
-                        <span>Block: {post.blockNumber}</span>
-                        <a 
-                          href={`https://sepolia.arbiscan.io/tx/${post.transactionHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="hover:text-primary-400 transition-colors"
-                        >
-                          View Transaction ↗
-                        </a>
-                      </div>
-                    </div>
-                  </Card>
+                  <PostCard
+                    key={post.auctionId}
+                    owner={post.winner as `0x${string}`}
+                    text={post.text}
+                    imageCid={post.imageCid}
+                    voiceCid={post.voiceCid}
+                    tipsReceived={BigInt(post.tipsReceived || '0')}
+                    auctionId={BigInt(post.auctionId)}
+                    timestamp={BigInt(post.createdAt)}
+                    variant="default"
+                    showActions={false}
+                  />
                 ))}
               </div>
             ) : (
